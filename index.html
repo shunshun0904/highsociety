@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ハイソサエティ</title>
+<style>
+:root{
+  --felt:#241228;
+  --felt-2:#341b3b;
+  --felt-bad:#3b1017;
+  --felt-bad-2:#511620;
+  --brass:#c9a227;
+  --brass-dim:#7d661d;
+  --paper:#ecdfc6;
+  --paper-2:#dccfb2;
+  --paper-ink:#2b2013;
+  --deep:#1c4438;
+  --rouge:#a3283a;
+  --text:#f2e8da;
+  --muted:#a08e9c;
+  --line:rgba(201,162,39,.32);
+  --display:"Didot","Bodoni 72","Hiragino Mincho ProN","Yu Mincho","Songti SC",serif;
+  --body:"Hiragino Sans","Yu Gothic UI","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--felt);
+  background-image:radial-gradient(120% 70% at 50% -10%, var(--felt-2) 0%, var(--felt) 62%);
+  color:var(--text);
+  font-family:var(--body);
+  font-size:15px;
+  line-height:1.5;
+  -webkit-text-size-adjust:100%;
+  transition:background-color .5s ease;
+}
+body.inverted{
+  background:var(--felt-bad);
+  background-image:radial-gradient(120% 70% at 50% -10%, var(--felt-bad-2) 0%, var(--felt-bad) 62%);
+}
+#app{max-width:520px;margin:0 auto;padding:14px 14px 40px}
+
+/* ---------- header ---------- */
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.wordmark{font-family:var(--display);font-size:21px;letter-spacing:.14em;color:var(--brass);line-height:1}
+.wordmark small{display:block;font-family:var(--body);font-size:9px;letter-spacing:.3em;color:var(--muted);margin-top:4px}
+.curtain{text-align:right}
+.curtain .lab{font-size:9px;letter-spacing:.24em;color:var(--muted)}
+.pips{display:flex;gap:5px;justify-content:flex-end;margin-top:5px}
+.pip{width:11px;height:11px;border:1px solid var(--brass-dim);transform:rotate(45deg)}
+.pip.on{background:var(--deep);border-color:var(--brass);box-shadow:0 0 0 1px rgba(0,0,0,.3) inset}
+
+/* ---------- hero: card on auction ---------- */
+.stage{text-align:center;padding:16px 0 10px}
+.eyebrow{font-size:10px;letter-spacing:.28em;color:var(--muted);margin-bottom:10px}
+.eyebrow b{color:var(--brass);font-weight:600}
+.plate{
+  width:150px;min-height:196px;margin:0 auto;
+  background:var(--paper);color:var(--paper-ink);
+  border:1px solid rgba(0,0,0,.35);
+  box-shadow:0 10px 26px rgba(0,0,0,.45);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  padding:14px 10px;position:relative;
+}
+.plate::after{content:"";position:absolute;inset:5px;border:1px solid rgba(43,32,19,.35);pointer-events:none}
+.plate.green{background:var(--deep);color:var(--paper)}
+.plate.green::after{border-color:rgba(236,223,198,.4)}
+.plate.red{background:var(--rouge);color:#fdeee6}
+.plate.red::after{border-color:rgba(255,255,255,.35)}
+.plate .num{font-family:var(--display);font-size:58px;line-height:.9;letter-spacing:.02em}
+.plate .nm{font-size:13px;letter-spacing:.14em}
+.plate .sub{font-size:10px;letter-spacing:.1em;opacity:.75;text-align:center}
+.plate .mark{font-family:var(--display);font-size:44px;line-height:1}
+.reveal{animation:rise .45s cubic-bezier(.2,.7,.3,1)}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+
+.ask{margin-top:12px;font-family:var(--display);font-size:17px;letter-spacing:.1em;color:var(--brass)}
+body.inverted .ask{color:#f0b9b0}
+.high{font-size:12px;color:var(--muted);margin-top:2px}
+.high b{color:var(--text);font-family:var(--display);font-size:16px}
+
+/* ---------- rivals ---------- */
+.rivals{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:14px 0 0}
+.rival{border:1px solid var(--line);padding:7px 6px;min-height:96px;position:relative;background:rgba(0,0,0,.16)}
+.rival.act{border-color:var(--brass);box-shadow:0 0 0 1px var(--brass) inset}
+.rival.out{opacity:.42}
+.rival .nm{font-size:10.5px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rival .bidline{font-family:var(--display);font-size:20px;color:var(--brass);line-height:1.1;margin-top:2px;min-height:22px}
+.rival .bidline.zero{color:var(--muted);font-size:11px;font-family:var(--body);letter-spacing:.1em}
+.rival .purse{font-size:9.5px;color:var(--muted);letter-spacing:.06em}
+.owned{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
+
+/* ---------- owned card chips ---------- */
+.tk{font-family:var(--display);font-size:11px;min-width:18px;height:18px;padding:0 3px;display:inline-flex;align-items:center;justify-content:center;background:var(--paper);color:var(--paper-ink);border-radius:1px}
+.tk.g{background:var(--deep);color:var(--paper)}
+.tk.r{background:var(--rouge);color:#fff}
+.tk.big{font-size:14px;min-width:24px;height:24px}
+
+/* ---------- your area ---------- */
+.mine{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.rowhead{display:flex;justify-content:space-between;align-items:baseline}
+.rowhead .nm{font-family:var(--display);font-size:16px;letter-spacing:.12em;color:var(--brass)}
+.rowhead .purse{font-size:11px;color:var(--muted)}
+.rowhead .purse b{color:var(--text);font-family:var(--display);font-size:15px}
+.staged{margin-top:8px;font-size:11px;color:var(--muted);min-height:17px;letter-spacing:.04em}
+.staged b{font-family:var(--display);font-size:15px;color:var(--brass)}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{
+  font-family:var(--display);font-size:17px;
+  width:44px;height:34px;display:flex;align-items:center;justify-content:center;
+  background:var(--paper);color:var(--paper-ink);
+  border:1px solid rgba(0,0,0,.3);border-radius:2px;
+  cursor:pointer;user-select:none;transition:transform .12s ease,box-shadow .12s ease;
+}
+.chip:disabled{opacity:.3;cursor:default}
+.chip.sel{background:var(--brass);color:#241228;transform:translateY(-5px);box-shadow:0 6px 12px rgba(0,0,0,.4)}
+.chip.spent{background:transparent;color:rgba(242,232,218,.22);border-style:dashed;border-color:rgba(242,232,218,.18);cursor:default}
+.chip:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+.acts{display:flex;gap:8px;margin-top:12px}
+.btn{
+  flex:1;padding:12px 8px;font-family:var(--body);font-size:13.5px;letter-spacing:.08em;
+  background:transparent;color:var(--text);border:1px solid var(--brass-dim);border-radius:2px;cursor:pointer;
+}
+.btn:hover:not(:disabled){border-color:var(--brass)}
+.btn:disabled{opacity:.3;cursor:default}
+.btn.primary{background:var(--brass);color:#241228;border-color:var(--brass);font-weight:600}
+.btn.primary:disabled{background:rgba(201,162,39,.22);color:rgba(36,18,40,.5)}
+.btn.ghost{flex:0 0 auto;padding:12px 12px;font-size:12px;color:var(--muted)}
+.btn:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+/* ---------- log ---------- */
+.log{margin-top:18px;border-top:1px solid var(--line);padding-top:10px;max-height:150px;overflow-y:auto}
+.log p{margin:0 0 5px;font-size:11.5px;color:var(--muted);letter-spacing:.02em}
+.log p.hi{color:var(--text)}
+.log p.mark{color:var(--brass)}
+.log p:first-child{animation:fade .3s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+/* ---------- modal / screens ---------- */
+.veil{position:fixed;inset:0;background:rgba(10,4,12,.86);display:flex;align-items:center;justify-content:center;padding:18px;z-index:20}
+.sheet{background:var(--felt-2);border:1px solid var(--brass-dim);max-width:460px;width:100%;max-height:88vh;overflow-y:auto;padding:20px}
+.sheet h2{font-family:var(--display);font-size:20px;letter-spacing:.14em;color:var(--brass);margin:0 0 4px}
+.sheet p{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+.rule{font-size:12px;line-height:1.75;color:var(--text)}
+.rule b{color:var(--brass);font-weight:600}
+.rule hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+
+table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 14px}
+th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line)}
+th{font-size:9.5px;letter-spacing:.1em;color:var(--muted);font-weight:400}
+td:first-child,th:first-child{text-align:left}
+tr.win td{color:var(--brass)}
+tr.out td{color:var(--muted);text-decoration:line-through;text-decoration-thickness:1px}
+.verdict{font-family:var(--display);font-size:22px;letter-spacing:.1em;color:var(--brass);margin:2px 0 14px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ============================================================
+   ハイソサエティ / High Society (Reiner Knizia)
+   ルール出典：Osprey Games 2018年版 公式ルールブック
+   ------------------------------------------------------------
+   ENGINE_START  ← ここから下、DOMに触れない純粋ロジック
+   ============================================================ */
+
+const MONEY = [1,2,3,4,6,8,10,12,15,20,25];      // 各自の小切手（合計106）
+const LUX_NAME = ['','香水','シャンパン','美食','カジノ','衣装','休暇','芸術','宝飾','馬術','世界周遊'];
+
+function sum(a){ return a.reduce((x,y)=>x+y,0); }
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+// 山札：高級品10 + プレステージ3 + 不名誉3 = 16枚
+function buildDeck(){
+  const d=[];
+  for(let v=1;v<=10;v++) d.push({t:'luxury',v:v,green:false});
+  for(let i=0;i<3;i++)  d.push({t:'prestige',green:true});
+  d.push({t:'scandal',green:true});   // 濃緑背景＝終幕カウント対象
+  d.push({t:'passe',green:false});
+  d.push({t:'fauxpas',green:false});
+  return shuffle(d);
+}
+function isDisgrace(c){ return c.t==='scandal'||c.t==='passe'||c.t==='fauxpas'; }
+
+function cardLabel(c){
+  if(c.t==='luxury')   return LUX_NAME[c.v]+'('+c.v+')';
+  if(c.t==='prestige') return 'プレステージ(×2)';
+  if(c.t==='scandal')  return 'スキャンダル(÷2)';
+  if(c.t==='passe')    return 'パセ(−5)';
+  return 'フォーパ';
+}
+
+function createGame(names, personas){
+  // あなたは常に先頭。CPUの席順は毎回入れ替える（隣人による有利不利をならすため）
+  const rest = shuffle(names.slice(1).map((n,i)=>({n:n,persona:personas[i+1]})));
+  const seat = [{n:names[0],persona:personas[0]}].concat(rest);
+  const G = {
+    players: seat.map((s,i)=>({
+      idx:i, name:s.n, you:(i===0), persona:s.persona,
+      hand:MONEY.slice(), bid:[], passed:false,
+      lux:[], prestige:0, passe:false, scandal:false, fauxHeld:false, pendingFaux:false
+    })),
+    deck: buildDeck(), card:null, starter:0, actor:0,
+    highBid:0, highBidder:null, greenSeen:0,
+    phase:'auction', pending:null, log:[]
+  };
+  beginRound(G);
+  return G;
+}
+
+function say(G,text,cls){ G.log.unshift({text:text,cls:cls||''}); }
+
+function beginRound(G){
+  if(G.deck.length===0){ G.phase='over'; return; }
+  const c = G.deck.pop();
+  if(c.green){
+    G.greenSeen++;
+    if(G.greenSeen===4){                       // 4枚目の濃緑カードで即終了（競りなし）
+      G.card=c; G.phase='over';
+      say(G,'4枚目の濃緑カード「'+cardLabel(c)+'」が現れた。舞踏会はここで幕。','mark');
+      return;
+    }
+  }
+  G.card=c;
+  G.highBid=0; G.highBidder=null;
+  G.players.forEach(p=>{ p.passed=false; p.bid=[]; });
+  G.actor=G.starter;
+  say(G,'── '+cardLabel(c)+' が場に出された',(isDisgrace(c)?'mark':'hi'));
+}
+
+function activeCount(G){ return G.players.filter(p=>!p.passed).length; }
+function nextActor(G){ let i=G.actor; do{ i=(i+1)%G.players.length; }while(G.players[i].passed); G.actor=i; }
+
+// 手札から「現在の最高額を超える最小の総額」になる組合せを探す
+function findMinRaise(hand, ownBid, highBid){
+  const n=hand.length; let best=null;
+  for(let m=1;m<(1<<n);m++){
+    let s=0,cnt=0,lo=99,idxs=[];
+    for(let i=0;i<n;i++) if(m&(1<<i)){ s+=hand[i]; cnt++; if(hand[i]<lo) lo=hand[i]; idxs.push(i); }
+    const total=ownBid+s;
+    if(total>highBid){
+      if(!best || total<best.total || (total===best.total && cnt<best.cnt) ||
+         (total===best.total && cnt===best.cnt && lo>best.lo)){
+        best={total:total,cnt:cnt,lo:lo,idxs:idxs};
+      }
+    }
+  }
+  return best;
+}
+function canRaise(G,p){ return sum(p.bid)+sum(p.hand) > G.highBid; }
+
+/* ---- 手番の適用 ---- */
+function applyBid(G, p, idxs){
+  const picked = idxs.map(i=>p.hand[i]).sort((a,b)=>a-b);
+  const keep = p.hand.filter((_,i)=>idxs.indexOf(i)<0);
+  p.hand = keep; p.bid = p.bid.concat(picked);
+  G.highBid = sum(p.bid); G.highBidder = p.idx;
+  say(G, p.name+' が '+G.highBid+' へ', p.you?'hi':'');
+  nextActor(G);
+  return settle(G);
+}
+
+function applyPass(G, p){
+  if(isDisgrace(G.card)){
+    // 逆競り：最初に降りた者が引き取り、自分の札は手元に戻る
+    p.hand = p.hand.concat(p.bid); p.bid=[];
+    say(G, p.name+' が降り、'+cardLabel(G.card)+' を引き取った', p.you?'hi':'mark');
+    G.players.forEach(o=>{ if(o!==p && o.bid.length){ say(G,'　'+o.name+' は '+sum(o.bid)+' を失った'); o.bid=[]; } });
+    G.starter = p.idx;
+    return award(G, p, G.card);
+  }
+  p.hand = p.hand.concat(p.bid); p.bid=[]; p.passed=true;
+  say(G, p.name+' が降りた', p.you?'hi':'');
+  if(activeCount(G)===1){
+    const w = G.players.find(x=>!x.passed);
+    const paid = sum(w.bid);
+    w.bid=[];                                   // 落札額は捨て札（永久に失う）
+    say(G, w.name+' が '+cardLabel(G.card)+' を '+(paid?paid+' で落札':'無償で獲得'), w.you?'hi':'mark');
+    G.starter = w.idx;
+    return award(G, w, G.card);
+  }
+  nextActor(G);
+  return settle(G);
+}
+
+// カードを引き渡す。フォーパの選択が必要なら pending を立てて止める
+function award(G, p, c){
+  if(c.t==='luxury'){
+    if(p.pendingFaux){ p.pendingFaux=false; p.fauxHeld=false; say(G,'　'+p.name+' はフォーパにより '+cardLabel(c)+' を即座に手放した'); }
+    else p.lux.push(c.v);
+  }
+  else if(c.t==='prestige') p.prestige++;
+  else if(c.t==='passe')    p.passe=true;
+  else if(c.t==='scandal')  p.scandal=true;
+  else if(c.t==='fauxpas'){
+    if(p.lux.length===0){ p.pendingFaux=true; p.fauxHeld=true; say(G,'　'+p.name+' は高級品を持たない。次に得る1枚を手放す'); }
+    else { G.phase='faux'; G.pending={player:p.idx}; return G; }   // 捨てる1枚を選ぶ
+  }
+  beginRound(G);
+  return G;
+}
+function resolveFaux(G, luxValue){
+  const p=G.players[G.pending.player];
+  const i=p.lux.indexOf(luxValue); if(i>=0) p.lux.splice(i,1);
+  say(G,'　'+p.name+' はフォーパにより '+LUX_NAME[luxValue]+'('+luxValue+') を手放した');
+  G.phase='auction'; G.pending=null;
+  beginRound(G);
+  return G;
+}
+function settle(G){ return G; }
+
+/* ---- 得点 ---- */
+function rawStatus(p){ return sum(p.lux) - (p.passe?5:0); }
+function scoreOf(p){
+  let s = rawStatus(p);
+  s = s * Math.pow(2,p.prestige);
+  if(p.scandal) s = s/2;
+  return s;
+}
+function finalTable(G){
+  const rows = G.players.map(p=>({
+    p:p, money:sum(p.hand), score:scoreOf(p),
+    best:(p.lux.length?Math.max.apply(null,p.lux):0)
+  }));
+  const poorest = Math.min.apply(null, rows.map(r=>r.money));
+  rows.forEach(r=> r.castOut = (r.money===poorest));
+  const alive = rows.filter(r=>!r.castOut);
+  let winner = null;
+  if(alive.length){
+    alive.sort((a,b)=> b.score-a.score || b.money-a.money || b.best-a.best);
+    const top=alive[0];
+    const tied=alive.filter(r=>r.score===top.score && r.money===top.money && r.best===top.best);
+    winner = (tied.length===1) ? top.p : null;
+  }
+  return {rows:rows, winner:winner, allOut:(alive.length===0)};
+}
+
+/* ---- CPUの判断 ---- */
+function cpuBudget(G,p){
+  const c=G.card, mult=Math.pow(2,p.prestige), raw=rawStatus(p);
+  let pts;
+  if(c.t==='luxury')        pts = c.v*mult;
+  else if(c.t==='prestige') pts = Math.max(raw*mult,4)+5;          // 今の得点が倍増＋今後の分
+  else if(c.t==='passe')    pts = 5*mult;
+  else if(c.t==='scandal')  pts = (Math.max(raw*mult,8)+4)/2;
+  else                      pts = (p.lux.length?Math.min.apply(null,p.lux):4)*mult;
+  let budget = pts * 2.0 * p.persona.rate * (0.85+Math.random()*0.35);
+
+  const mine=sum(p.hand);
+  const others=G.players.filter(o=>o!==p).map(o=>sum(o.hand));
+  const spendable = mine - Math.min.apply(null,others) - 1;  // 使っても最下位を免れる余裕
+  if(G.greenSeen>=3){
+    // 終幕間際：残した金は勝敗に効かない。残りラウンド数で割って使い切る
+    const rounds=Math.max(1,(G.deck.length-1)/2);
+    if(spendable<=0) budget=Math.min(budget,0.6);            // これ以上使えば最下位が確定
+    else budget=Math.min(spendable, Math.max(budget, spendable/rounds*1.6));
+  } else if(spendable<=0) budget*=0.7;
+  return budget;
+}
+function cpuMove(G){
+  const p=G.players[G.actor];
+  if(!canRaise(G,p)) return {pass:true};
+  const own=sum(p.bid), budget=cpuBudget(G,p);
+  let aim=G.highBid+1;
+  if(G.highBid===0) aim=budget*(0.35+Math.random()*0.2);            // 口火は最低額より少し高く
+  else if(Math.random()<0.25) aim=G.highBid+budget*0.12;            // ときおり跳ね上げる
+  let r=findMinRaise(p.hand, own, Math.max(G.highBid, Math.ceil(aim)-1));
+  if(!r || r.total>budget) r=findMinRaise(p.hand, own, G.highBid);  // 届かなければ最小上乗せ
+  if(!r || r.total>budget) return {pass:true};
+  return {idxs:r.idxs};
+}
+function cpuFauxChoice(p){ return Math.min.apply(null,p.lux); }   // 一番安い高級品を手放す
+
+/* ============================================================
+   ENGINE_END
+   ============================================================ */
+
+/* ---------- 描画 ---------- */
+const PERSONAS=[{rate:1.0},{rate:0.92},{rate:1.0},{rate:1.12}];
+const NAMES=['あなた','デュボワ夫人','ラヴァル伯爵','ムッシュ・アルノー'];
+let G=null, sel=[], showPurse=false, busy=false, screen='title';
+const app=document.getElementById('app');
+const esc=s=>String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+
+function tokens(p){
+  let h='';
+  p.lux.slice().sort((a,b)=>a-b).forEach(v=> h+='<span class="tk">'+v+'</span>');
+  for(let i=0;i<p.prestige;i++) h+='<span class="tk g">×2</span>';
+  if(p.scandal) h+='<span class="tk g">÷2</span>';
+  if(p.passe)   h+='<span class="tk r">−5</span>';
+  if(p.fauxHeld)h+='<span class="tk r">FP</span>';
+  return h;
+}
+function plateHTML(c){
+  if(!c) return '';
+  if(c.t==='luxury') return '<div class="plate reveal"><div class="num">'+c.v+'</div><div class="nm">'+LUX_NAME[c.v]+'</div><div class="sub">高級品</div></div>';
+  if(c.t==='prestige')return '<div class="plate green reveal"><div class="mark">×2</div><div class="nm">プレステージ</div><div class="sub">最終得点が倍になる</div></div>';
+  if(c.t==='scandal') return '<div class="plate green reveal"><div class="mark">÷2</div><div class="nm">スキャンダル</div><div class="sub">最終得点が半分になる</div></div>';
+  if(c.t==='passe')   return '<div class="plate red reveal"><div class="mark">−5</div><div class="nm">パセ</div><div class="sub">得点が5下がる</div></div>';
+  return '<div class="plate red reveal"><div class="mark">FP</div><div class="nm">フォーパ</div><div class="sub">高級品を1枚手放す</div></div>';
+}
+
+function render(){
+  if(screen==='rules') return;                 // ルール表示中は上書きしない
+  if(screen==='title'){ renderTitle(); return; }
+  if(G.phase==='over'){ renderEnd(); return; }
+  const me=G.players[0], c=G.card, bad=isDisgrace(c);
+  document.body.classList.toggle('inverted', bad);
+
+  let h='';
+  h+='<div class="top"><div class="wordmark">HIGH SOCIETY<small>ライナー・クニツィア</small></div>'
+   + '<div class="curtain"><div class="lab">終幕まで</div><div class="pips">';
+  for(let i=0;i<4;i++) h+='<div class="pip'+(i<G.greenSeen?' on':'')+'"></div>';
+  h+='</div></div></div>';
+
+  h+='<div class="stage"><div class="eyebrow">'+(bad?'押しつけ合い ── <b>先に降りた者が引き取る</b>':'競り ── <b>最後まで残った者が獲る</b>')+'</div>';
+  h+=plateHTML(c);
+  const actor=G.players[G.actor];
+  h+='<div class="ask">'+(G.phase==='faux'?'手放す高級品を選ぶ':(actor.you?'あなたの番':esc(actor.name)+' が考えている…'))+'</div>';
+  h+='<div class="high">最高額 <b>'+G.highBid+'</b>'+(G.highBidder!==null?'　'+esc(G.players[G.highBidder].name):'')+'</div></div>';
+
+  h+='<div class="rivals">';
+  G.players.slice(1).forEach(p=>{
+    h+='<div class="rival'+(G.actor===p.idx?' act':'')+(p.passed?' out':'')+'">'
+      +'<div class="nm">'+esc(p.name)+'</div>'
+      +'<div class="bidline'+(p.bid.length?'':' zero')+'">'+(p.bid.length?sum(p.bid):(p.passed?'降りた':'—'))+'</div>'
+      +(showPurse?'<div class="purse">残金 '+sum(p.hand)+'</div>':'')
+      +'<div class="owned">'+tokens(p)+'</div></div>';
+  });
+  h+='</div>';
+
+  const staged=sum(me.bid), picked=sum(sel.map(i=>me.hand[i]));
+  h+='<div class="mine"><div class="rowhead"><div class="nm">'+esc(me.name)+'</div>'
+    + '<div class="purse">残金 <b>'+sum(me.hand)+'</b></div></div>';
+  h+='<div class="owned" style="margin-top:6px">'+(tokens(me)||'<span style="font-size:11px;color:var(--muted)">まだ何も持っていない</span>')+'</div>';
+  h+='<div class="staged">'+(staged||picked
+      ? '場に出した <b>'+staged+'</b>'+(picked?' ＋ 選択中 '+picked+' → <b>'+(staged+picked)+'</b>':'')
+      : '手札から小切手を選んで入札する')+'</div>';
+
+  const myTurn = (G.actor===0 && G.phase==='auction' && !busy);
+  h+='<div class="chips">';
+  me.hand.forEach((v,i)=>{
+    h+='<button class="chip'+(sel.indexOf(i)>=0?' sel':'')+'" data-i="'+i+'"'+(myTurn?'':' disabled')+'>'+v+'</button>';
+  });
+  MONEY.forEach(v=>{ if(me.hand.indexOf(v)<0 && me.bid.indexOf(v)<0) h+='<span class="chip spent">'+v+'</span>'; });
+  h+='</div>';
+
+  const total=staged+picked, ok=myTurn && picked>0 && total>G.highBid;
+  h+='<div class="acts">'
+    + '<button class="btn primary" id="bid"'+(ok?'':' disabled')+'>入札 '+(picked?total:'')+'</button>'
+    + '<button class="btn" id="pass"'+(myTurn?'':' disabled')+'>'+(bad?'降りて引き取る':'降りる')+'</button>'
+    + '<button class="btn ghost" id="min"'+(myTurn?'':' disabled')+'>最小</button></div>';
+  if(myTurn && !canRaise(G,me)) h+='<div class="staged" style="color:var(--rouge)">これ以上は上乗せできない。降りるしかない。</div>';
+
+  h+='<div class="acts" style="margin-top:8px">'
+    + '<button class="btn ghost" id="purse" style="flex:1">'+(showPurse?'残金を隠す':'全員の残金を表示')+'</button>'
+    + '<button class="btn ghost" id="rules" style="flex:1">ルール</button></div>';
+
+  h+='<div class="log">'+G.log.slice(0,40).map(l=>'<p class="'+l.cls+'">'+esc(l.text)+'</p>').join('')+'</div>';
+  h+='</div>';
+
+  if(G.phase==='faux' && G.pending.player===0){
+    h+='<div class="veil"><div class="sheet"><h2>フォーパ</h2><p>高級品を1枚、手放さなければならない。</p><div class="chips">'
+      + G.players[0].lux.slice().sort((a,b)=>a-b).map(v=>'<button class="chip" data-faux="'+v+'">'+v+'</button>').join('')
+      + '</div></div></div>';
+  }
+  app.innerHTML=h;
+  wire();
+}
+
+function wire(){
+  app.querySelectorAll('.chip[data-i]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i, k=sel.indexOf(i);
+    if(k>=0) sel.splice(k,1); else sel.push(i);
+    render();
+  });
+  app.querySelectorAll('[data-faux]').forEach(b=>b.onclick=()=>{ resolveFaux(G,+b.dataset.faux); render(); step(); });
+  const $=id=>app.querySelector('#'+id);
+  if($('bid'))  $('bid').onclick=()=>{ const idxs=sel.slice(); sel=[]; applyBid(G,G.players[0],idxs); render(); step(); };
+  if($('pass')) $('pass').onclick=()=>{ sel=[]; applyPass(G,G.players[0]); render(); step(); };
+  if($('min'))  $('min').onclick=()=>{ const me=G.players[0], r=findMinRaise(me.hand,sum(me.bid),G.highBid); sel=r?r.idxs:[]; render(); };
+  if($('purse'))$('purse').onclick=()=>{ showPurse=!showPurse; render(); };
+  if($('rules'))$('rules').onclick=()=>{ screen='rules'; renderRules(); };
+}
+
+// CPUの手番を順に進める
+function step(){
+  if(G.phase==='over'){ setTimeout(render,600); return; }
+  if(G.phase==='faux'){
+    const p=G.players[G.pending.player];
+    if(!p.you){ busy=true; setTimeout(()=>{ resolveFaux(G,cpuFauxChoice(p)); busy=false; render(); step(); },700); }
+    return;
+  }
+  if(G.actor===0){ busy=false; render(); return; }
+  busy=true; render();
+  setTimeout(()=>{
+    const p=G.players[G.actor], mv=cpuMove(G);
+    if(mv.pass) applyPass(G,p); else applyBid(G,p,mv.idxs);
+    busy=false; render(); step();
+  }, 750+Math.random()*450);
+}
+
+function renderTitle(){
+  document.body.classList.remove('inverted');
+  app.innerHTML='<div class="top"><div class="wordmark">HIGH SOCIETY<small>ライナー・クニツィア</small></div></div>'
+   +'<div class="stage" style="padding-top:34px">'+plateHTML({t:'luxury',v:10})
+   +'<div class="ask" style="margin-top:20px">見栄を張るのは、金のあるうちだけ</div>'
+   +'<div class="high">4人対戦（あなた＋3名）</div></div>'
+   +'<div class="acts" style="margin-top:28px"><button class="btn primary" id="start">はじめる</button>'
+   +'<button class="btn" id="rules2">ルール</button></div>';
+  app.querySelector('#start').onclick=()=>{ G=createGame(NAMES,PERSONAS); sel=[]; screen='play'; render(); step(); };
+  app.querySelector('#rules2').onclick=()=>{ screen='rules'; renderRules(); };
+}
+
+function renderRules(){
+  app.innerHTML='<div class="sheet" style="max-width:none;border:0;padding:0">'
+   +'<h2>ルール</h2><p>Osprey Games 2018年版 公式ルールに準拠</p><div class="rule">'
+   +'<b>目的</b>　最も高いステータスを集める。ただし<b>残金が最も少ない人は勝者になれない</b>。<hr>'
+   +'<b>小切手</b>　全員が 1,2,3,4,6,8,10,12,15,20,25（計106）を持つ。おつりは出ない。<hr>'
+   +'<b>競り（高級品・プレステージ）</b>　場のカードを競り落とす。手番では前の最高額を超える額まで小切手を追加するか、降りる。降りると出した小切手は手元に戻る。最後に残った1人が落札し、<b>出した小切手を失う</b>。<hr>'
+   +'<b>逆競り（不名誉）</b>　押しつけ合いになる。<b>最初に降りた人がカードを引き取り、小切手は手元に戻る</b>。残り全員は出していた小切手を失う。<hr>'
+   +'<b>不名誉カード</b>　パセ＝得点−5／スキャンダル＝最終得点が半分／フォーパ＝高級品を1枚手放す（持っていなければ次に得た1枚）。<hr>'
+   +'<b>終幕</b>　濃緑背景の4枚（プレステージ3枚＋スキャンダル）の<b>4枚目が出た瞬間に終了</b>。そのカードの競りは行わない。<hr>'
+   +'<b>得点</b>　高級品の合計 →（パセなら−5）→ プレステージ1枚ごとに×2 → スキャンダルなら÷2。<hr>'
+   +'<b>脱落</b>　残金が最少の人（同額なら全員）は勝てない。同点は残金の多い方、なお同点なら最高額の高級品を持つ方の勝ち。'
+   +'</div><div class="acts" style="margin-top:20px"><button class="btn primary" id="back">戻る</button></div></div>';
+  app.querySelector('#back').onclick=()=>{ screen=(G?'play':'title'); render(); };
+}
+
+function renderEnd(){
+  document.body.classList.remove('inverted');
+  const t=finalTable(G);
+  let h='<div class="top"><div class="wordmark">FINALE<small>幕切れ</small></div></div><div class="sheet" style="border:0;padding:16px 0;max-width:none">';
+  h+='<div class="verdict">'+(t.allOut?'全員が席を外された':(t.winner?esc(t.winner.name)+' の勝ち':'引き分け'))+'</div>';
+  h+='<table><tr><th>　</th><th>高級品</th><th>−5</th><th>×2</th><th>÷2</th><th>得点</th><th>残金</th></tr>';
+  t.rows.slice().sort((a,b)=>b.score-a.score).forEach(r=>{
+    const p=r.p, cls=(t.winner===p?'win':(r.castOut?'out':''));
+    h+='<tr class="'+cls+'"><td>'+esc(p.name)+'</td><td>'+sum(p.lux)+'</td><td>'+(p.passe?'−5':'—')+'</td>'
+      +'<td>'+(p.prestige?'×'+Math.pow(2,p.prestige):'—')+'</td><td>'+(p.scandal?'÷2':'—')+'</td>'
+      +'<td><b>'+r.score+'</b></td><td>'+r.money+(r.castOut?' 脱落':'')+'</td></tr>';
+  });
+  h+='</table>';
+  h+='<div class="acts"><button class="btn primary" id="again">もう一度</button><button class="btn" id="rules3">ルール</button></div>';
+  h+='<div class="log" style="max-height:200px">'+G.log.slice(0,60).map(l=>'<p class="'+l.cls+'">'+esc(l.text)+'</p>').join('')+'</div></div>';
+  app.innerHTML=h;
+  app.querySelector('#again').onclick=()=>{ G=createGame(NAMES,PERSONAS); sel=[]; render(); step(); };
+  app.querySelector('#rules3').onclick=()=>{ screen='rules'; renderRules(); };
+}
+
+renderTitle();
+</script>
+</body>
+</html>
