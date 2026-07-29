@@ -513,6 +513,44 @@ function agentFeatures(G,p,acts){
   return f;
 }
 
+/* ---- 終局時の成績 ---- */
+// 席順の比較。脱落者（残金最少）は勝てないので常に最下位扱い
+function agentCmp(a,b){
+  if(a.castOut!==b.castOut) return a.castOut?-1:1;
+  if(a.castOut) return 0;
+  return (a.score-b.score)||(a.money-b.money)||(a.best-b.best);
+}
+// 各プレイヤーの「勝ち分（同点は山分け）」と「順位」を返す
+function agentOutcome(G){
+  const t=finalTable(G), rows=t.rows, n=rows.length;
+  const win=new Array(n).fill(0), place=new Array(n).fill(0), top=[];
+  for(let i=0;i<n;i++){
+    if(rows[i].castOut) continue;
+    let isTop=true;
+    for(let j=0;j<n;j++) if(agentCmp(rows[i],rows[j])<0){ isTop=false; break; }
+    if(isTop) top.push(i);
+  }
+  for(let i=0;i<n;i++){
+    let below=0, tie=0;
+    for(let j=0;j<n;j++){
+      if(i===j) continue;
+      const c=agentCmp(rows[i],rows[j]);
+      if(c>0) below++; else if(c===0) tie++;
+    }
+    const k=rows[i].p.idx;
+    place[k]=(below+0.5*tie)/(n-1);
+    win[k]=top.indexOf(i)>=0 ? 1/top.length : 0;
+  }
+  return {win:win, place:place, top:top.map(i=>rows[i].p.idx)};
+}
+// 学習で使う報酬。勝ちを主、順位を従（順位を少し混ぜると学習の立ち上がりが速い）
+const AGENT_SHAPE=0.15;
+function agentReward(G){
+  const o=agentOutcome(G), r=new Array(o.win.length);
+  for(let i=0;i<r.length;i++) r[i]=(1-AGENT_SHAPE)*o.win[i]+AGENT_SHAPE*o.place[i];
+  return r;
+}
+
 /* ---- 方策ネットワーク ---- */
 function agentNewNet(h1,h2){
   const nIn=AGENT_NFEAT, nOut=AGENT_NACT+1;           // 末尾1つは状態価値
@@ -585,6 +623,86 @@ function agentMove(G,temp){
   const e=agentEval(net,G,p);
   const a=agentSample(agentProbs(e.logits,e.acts,temp==null?AGENT_TEMP:temp));
   return a===0 ? {pass:true} : {idxs:e.acts[a].idxs};
+}
+
+/* ============================================================
+   先読み ── 候補手ごとに競りの続きを何度も試し、価値で選ぶ
+   ------------------------------------------------------------
+   方策は「一目で決める」ため、押せば相手が降りるのか、返り討ちに遭うのかを
+   確かめていない。ここでは各候補手を実際に打ってみて、自分の次の判断どころ
+   （か終局）まで方策で進め、そこでの価値を平均して比べる。
+   山札の順序は伏せられているので、複製した局面では必ず切り直す（覗き見の防止）。
+   ============================================================ */
+const AGENT_ROLLOUTS=12;    // 候補手ごとの試行回数
+const AGENT_PRUNE=0.02;     // 方策がこれ未満しか推さない手は試さない
+
+function agentClone(G){
+  const ps=new Array(G.players.length);
+  for(let i=0;i<G.players.length;i++){
+    const p=G.players[i];
+    ps[i]={idx:p.idx,name:p.name,you:p.you,persona:p.persona,
+      hand:p.hand.slice(), bid:p.bid.slice(), passed:p.passed,
+      lux:p.lux.slice(), prestige:p.prestige, passe:p.passe, scandal:p.scandal,
+      fauxHeld:p.fauxHeld, pendingFaux:p.pendingFaux};
+  }
+  return {players:ps, deck:shuffle(G.deck.slice()), card:G.card,
+    starter:G.starter, actor:G.actor, highBid:G.highBid, highBidder:G.highBidder,
+    greenSeen:G.greenSeen, phase:G.phase, pending:G.pending, log:[]};
+}
+
+// 自分の次の判断どころ（＝学習時と同じ局面）か終局まで進め、そこでの価値を返す
+function agentRollValue(net,G,me,temp){
+  let guard=0;
+  while(guard++<300){
+    if(G.phase==='over') break;
+    if(G.phase==='faux'){ resolveFaux(G,cpuFauxChoice(G.players[G.pending.player])); continue; }
+    const p=G.players[G.actor];
+    const mine=(p.idx===me);
+    if(mine && canRaise(G,p)) break;
+    let mv;
+    if(!canRaise(G,p)) mv={pass:true};
+    else {
+      const e=agentEval(net,G,p);
+      const a=agentSample(agentProbs(e.logits,e.acts,temp));
+      mv = a===0 ? {pass:true} : {idxs:e.acts[a].idxs};
+    }
+    if(mv.pass) applyPass(G,p); else applyBid(G,p,mv.idxs);
+  }
+  if(G.phase==='over') return agentReward(G)[me];
+  const p=G.players[me], acts=agentActions(G,p);
+  return agentForward(net,agentFeatures(G,p,acts))[AGENT_NACT];
+}
+
+function agentSearchMove(G,opt){
+  opt=opt||{};
+  const K=opt.rollouts||AGENT_ROLLOUTS, temp=opt.temp==null?AGENT_TEMP:opt.temp;
+  const p=G.players[G.actor], me=p.idx;
+  if(!canRaise(G,p)) return {pass:true};
+  const net=agentNet();
+  if(!net) return cpuMove(G);
+  const e=agentEval(net,G,p);
+  const pr=agentProbs(e.logits,e.acts,1);
+
+  // 方策がまるで推さない手は省く。ただし上位2手は必ず残す
+  const order=[];
+  for(let a=0;a<AGENT_NACT;a++) if(e.acts[a]) order.push(a);
+  order.sort((x,y)=>pr[y]-pr[x]);
+  const keep=order.filter((a,i)=>i<2||pr[a]>=AGENT_PRUNE);
+  if(keep.length===1) return keep[0]===0?{pass:true}:{idxs:e.acts[keep[0]].idxs};
+
+  let bestA=keep[0], bestV=-Infinity;
+  for(const a of keep){
+    let s=0;
+    for(let k=0;k<K;k++){
+      const c=agentClone(G);
+      const q=c.players[me];
+      if(a===0) applyPass(c,q); else applyBid(c,q,e.acts[a].idxs);
+      s+=agentRollValue(net,c,me,temp);
+    }
+    const v=s/K;
+    if(v>bestV){ bestV=v; bestA=a; }
+  }
+  return bestA===0 ? {pass:true} : {idxs:e.acts[bestA].idxs};
 }
 
 /* ============================================================

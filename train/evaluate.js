@@ -5,10 +5,11 @@
 const H = require('./harness');
 const { playGame } = require('./game');
 
-function seatOf(kind, net, temp) {
-  if (kind === 'cpu') return { kind: 'cpu' };
-  if (kind === 'random') return { kind: 'random' };
-  return { kind: 'net', net: net, temp: temp };
+function seatOf(s) {
+  if (s.kind === 'cpu') return { kind: 'cpu' };
+  if (s.kind === 'random') return { kind: 'random' };
+  if (s.kind === 'search') return { kind: 'search', net: s.net, temp: s.temp, rollouts: s.rollouts };
+  return { kind: 'net', net: s.net, temp: s.temp };
 }
 
 // a を1人、b を3人にして games 局。戻り値は a の勝ち分（引き分けは山分け）と平均順位
@@ -19,7 +20,7 @@ function match(a, b, games, seed) {
   for (let g = 0; g < games; g++) {
     const me = g % 4;
     const seats = [];
-    for (let i = 0; i < 4; i++) seats.push(i === me ? seatOf(a.kind, a.net, a.temp) : seatOf(b.kind, b.net, b.temp));
+    for (let i = 0; i < 4; i++) seats.push(i === me ? seatOf(a) : seatOf(b));
     const res = playGame(seats, rnd, null);
     if (res.top.indexOf(me) >= 0) win += 1 / res.top.length;
     place += res.reward[me];

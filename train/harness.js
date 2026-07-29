@@ -27,7 +27,9 @@ const EXPORTS = [
   'cpuBudget', 'cpuMove', 'cpuFauxChoice',
   'AGENT_STEPS', 'AGENT_NACT', 'AGENT_NFEAT', 'AGENT_TEMP', 'AGENT_DATA',
   'agentSums', 'agentActions', 'agentFeatures', 'agentNewNet', 'agentForward',
-  'agentProbs', 'agentSample', 'agentEval', 'agentNet', 'agentUseNet', 'agentMove'
+  'agentProbs', 'agentSample', 'agentEval', 'agentNet', 'agentUseNet', 'agentMove',
+  'agentOutcome', 'agentReward', 'AGENT_SHAPE',
+  'agentClone', 'agentRollValue', 'agentSearchMove', 'AGENT_ROLLOUTS'
 ];
 
 let API = null;
