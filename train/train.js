@@ -20,12 +20,12 @@ const num = (k, d) => (argv[k] === undefined ? d : Number(argv[k]));
 
 const CFG = {
   h1: num('h1', 96), h2: num('h2', 64),
-  iters: num('iters', 200),
+  iters: num('iters', 260),
   games: num('games', 768),          // 1反復あたりの自己対戦局数
   workers: num('workers', Math.max(1, Math.min(4, os.cpus().length - 1))),
   epochs: num('epochs', 3),
   mb: num('mb', 1024),
-  lr: num('lr', 3e-4), lrEnd: num('lrEnd', 1e-4),
+  lr: num('lr', 5e-4), lrEnd: num('lrEnd', 1e-4),
   clip: num('clip', 0.2),
   ent: num('ent', 0.02), entEnd: num('entEnd', 0.004),
   vf: num('vf', 0.5),
@@ -33,7 +33,7 @@ const CFG = {
   pCpu: num('pCpu', 0.10),           // 相手席に既存CPUを混ぜる割合
   pPool: num('pPool', 0.20),         // 相手席に過去の自分を混ぜる割合
   poolEvery: num('poolEvery', 10), poolMax: num('poolMax', 8),
-  evalEvery: num('evalEvery', 20), evalGames: num('evalGames', 1200),
+  evalEvery: num('evalEvery', 20), evalGames: num('evalGames', 1200), evalTemp: num('evalTemp', 0.4),
   seed: num('seed', 20260729),
   out: argv.out || path.join(__dirname, 'weights.json')
 };
@@ -41,6 +41,14 @@ console.log('設定 ' + JSON.stringify(CFG));
 
 const api = H.api();
 const tr = new Trainer(CFG.h1, CFG.h2, CFG.seed);
+
+// --init=weights.json で続きから学習する（Adamの状態は引き継がない）
+if (argv.init) {
+  const w = JSON.parse(fs.readFileSync(argv.init, 'utf8'));
+  if (w.h1 !== CFG.h1 || w.h2 !== CFG.h2) throw new Error('--init の層の大きさが合わない');
+  tr.load(w);
+  console.log('続きから学習: ' + argv.init + '（反復 ' + (w.iter || '?') + ' 時点）');
+}
 const pool = [];
 const hist = [];
 
@@ -149,9 +157,11 @@ function netFromWeights() {
 
     if (it % CFG.evalEvery === 0 || it === CFG.iters) {
       const net = netFromWeights();
-      const vsCpu = match({ kind: 'net', net: net, temp: 1 }, { kind: 'cpu' }, CFG.evalGames, 777);
-      const cpuVs = match({ kind: 'cpu' }, { kind: 'net', net: net, temp: 1 }, CFG.evalGames, 778);
-      line += '\n        評価: 学習AI1人 vs 既存CPU3人 → 勝率 ' + vsCpu.win.toFixed(3) +
+      // 本番の打ち手は温度を下げて使うので、評価もその温度で行う
+      const T = CFG.evalTemp;
+      const vsCpu = match({ kind: 'net', net: net, temp: T }, { kind: 'cpu' }, CFG.evalGames, 777);
+      const cpuVs = match({ kind: 'cpu' }, { kind: 'net', net: net, temp: T }, CFG.evalGames, 778);
+      line += '\n        評価(温度' + T + '): 学習AI1人 vs 既存CPU3人 → 勝率 ' + vsCpu.win.toFixed(3) +
         ' ／ 既存CPU1人 vs 学習AI3人 → CPUの勝率 ' + cpuVs.win.toFixed(3) + '（互角なら 0.250）';
       hist.push({ it, vsCpu: vsCpu.win, cpuVs: cpuVs.win, selfWin });
       saveWeights(CFG.out, { iter: it, vsCpu: vsCpu.win, hist });
