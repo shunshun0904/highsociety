@@ -62,4 +62,15 @@ function useRng(seed) {
 const NAMES = ['P0', 'P1', 'P2', 'P3'];
 const PERSONAS = [{ rate: 1.0 }, { rate: 0.92 }, { rate: 1.0 }, { rate: 1.12 }];
 
-module.exports = { api, section, makeRng, useRng, NAMES, PERSONAS, ROOT, HTML };
+// 学習の出発点を読む。'embedded' なら index.html に埋め込み済みの重みを使う
+// （配布物さえあれば学習を再開できるようにするため）
+function loadWeights(spec) {
+  if (spec === 'embedded') {
+    const n = api().agentNet();
+    if (!n) throw new Error('index.html に重みが埋め込まれていない');
+    return { h1: n.h1, h2: n.h2, iter: 'embedded', W1: n.W1, B1: n.B1, W2: n.W2, B2: n.B2, W3: n.W3, B3: n.B3 };
+  }
+  return JSON.parse(fs.readFileSync(spec, 'utf8'));
+}
+
+module.exports = { api, section, makeRng, useRng, loadWeights, NAMES, PERSONAS, ROOT, HTML };

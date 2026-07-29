@@ -17,7 +17,7 @@ const net = api.agentNet();
 if (!net) { console.log('index.html に重みが埋め込まれていない'); process.exit(1); }
 
 function floatNet(file) {
-  const w = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const w = H.loadWeights(file);
   const n = api.agentNewNet(w.h1, w.h2);
   for (const k of ['W1', 'B1', 'W2', 'B2', 'W3', 'B3']) n[k].set(w[k]);
   return n;
