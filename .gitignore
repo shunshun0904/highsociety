@@ -1,1 +1,4 @@
+# 学習中に書き出される重み。配布用の重み（int8量子化）は index.html に埋め込まれており、
+# 学習を続けるときは --init=embedded でそこから読み直せる
+train/weights.json
 train/weights.best.json

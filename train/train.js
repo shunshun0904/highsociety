@@ -42,8 +42,16 @@ console.log('設定 ' + JSON.stringify(CFG));
 const api = H.api();
 const tr = new Trainer(CFG.h1, CFG.h2, CFG.seed);
 
-// --init=weights.json で続きから学習する（Adamの状態は引き継がない）
-if (argv.init) {
+/* 続きから学習する（Adamの状態は引き継がない）
+     --init=embedded            index.html に埋め込み済みの重みから
+     --init=train/weights.json  学習スクリプトが保存した重みから            */
+if (argv.init === 'embedded') {
+  const n = api.agentNet();
+  if (!n) throw new Error('index.html に重みが埋め込まれていない');
+  if (n.h1 !== CFG.h1 || n.h2 !== CFG.h2) throw new Error('--init の層の大きさが合わない');
+  tr.load(n);
+  console.log('続きから学習: index.html に埋め込み済みの重み');
+} else if (argv.init) {
   const w = JSON.parse(fs.readFileSync(argv.init, 'utf8'));
   if (w.h1 !== CFG.h1 || w.h2 !== CFG.h2) throw new Error('--init の層の大きさが合わない');
   tr.load(w);

@@ -50,7 +50,7 @@ node train/verify.js      # 埋め込み後の強さを実測する
 | `--ent` / `--entEnd` | 0.02 / 0.004 | エントロピー係数（線形に減衰） |
 | `--pCpu` / `--pPool` | 0.10 / 0.20 | 相手席に既存CPU／過去の自分を混ぜる割合 |
 | `--evalEvery` | 20 | 何反復ごとに既存CPUと対戦評価するか |
-| `--init` | なし | 既存の重みから学習を続ける（例 `--init=train/weights.json`） |
+| `--init` | なし | 続きから学習する。`embedded` で `index.html` の埋め込み済み重みから、パス指定で `train/weights.json` から |
 
 学習率は 3e-4 / 6e-4 / 1.2e-3 を20反復ずつ比べ、1.2e-3 は明確に崩れたため
 5e-4 から 1e-4 へ減衰させる設定にしています。
@@ -68,4 +68,4 @@ node train/verify.js      # 埋め込み後の強さを実測する
 | `export.js` | 重みを int8 量子化して `index.html` に埋め込む |
 | `verify.js` | 埋め込み後の強さを実測する |
 | `selftest.js` | ロジックの健全性チェック |
-| `weights.json` | 学習した重み（float32） |
+| `weights.json` | 学習した重み（float32・リポジトリには含めない） |
