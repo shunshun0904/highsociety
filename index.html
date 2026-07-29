@@ -383,10 +383,225 @@ function cpuFauxChoice(p){ return Math.min.apply(null,p.lux); }   // 一番安�
    ENGINE_END
    ============================================================ */
 
+/* ============================================================
+   AGENT_START  ← 自己対戦の深層強化学習で得た方策（DOM非依存）
+   ------------------------------------------------------------
+   91次元の特徴 → 全結合96(ReLU) → 全結合64(ReLU) → 9行動＋状態価値
+   学習は train/ 以下のスクリプト（PPO・自己対戦）で行い、
+   int8量子化した重みを AGENT_DATA に埋め込む。
+   ここは学習側からも同じコードとして読み込まれる。
+   ============================================================ */
+
+const AGENT_STEPS=[1,2,3,5,8,13,21,34];   // 「最高額＋d 以上になる最小の組合せ」を候補手とする
+const AGENT_NACT=AGENT_STEPS.length+1;    // 0番は「降りる（不名誉なら引き取る）」
+const AGENT_NFEAT=91;
+const AGENT_TEMP=0.85;                    // 方策のやわらかさ（小さいほど最善手に固執する）
+
+// 手札の部分和を動的計画法で一括表にする。
+// cnt[s]=合計sを作る最小枚数（127=作れない） msk[s]=そのときの手札ビット lo[s]=最小額面
+function agentSums(hand){
+  const CAP=107, cnt=new Int8Array(CAP).fill(127), msk=new Int32Array(CAP), lo=new Int8Array(CAP);
+  cnt[0]=0; lo[0]=127;
+  for(let i=0;i<hand.length;i++){
+    const v=hand[i];
+    for(let s=CAP-1;s>=v;s--){
+      const q=s-v; if(cnt[q]===127) continue;
+      const c=cnt[q]+1, l=lo[q]<v?lo[q]:v;
+      if(c<cnt[s] || (c===cnt[s] && l>lo[s])){ cnt[s]=c; msk[s]=msk[q]|(1<<i); lo[s]=l; }
+    }
+  }
+  return {cnt:cnt,msk:msk};
+}
+function agentBits(m){ const a=[]; for(let i=0;i<16;i++) if(m&(1<<i)) a.push(i); return a; }
+
+// 候補手を組み立てる。作れない額の枠は null（＝選べない手）として残す
+function agentActions(G,p){
+  const own=sum(p.bid), t=agentSums(p.hand), acts=new Array(AGENT_NACT).fill(null);
+  acts[0]={pass:true};
+  let prev=-1;
+  for(let a=0;a<AGENT_STEPS.length;a++){
+    let s=Math.max(1, G.highBid+AGENT_STEPS[a]-own);
+    while(s<=106 && !(t.cnt[s]!==127 && own+s>G.highBid)) s++;
+    if(s>106) continue;
+    const total=own+s;
+    if(total===prev) continue;            // 同額になる候補は1つに畳む
+    prev=total;
+    acts[a+1]={total:total, idxs:agentBits(t.msk[s])};
+  }
+  return acts;
+}
+
+const AGENT_TYPE={luxury:0,prestige:1,scandal:2,passe:3,fauxpas:4};
+function agentFeatures(G,p,acts){
+  const f=new Float32Array(AGENT_NFEAT); let k=0;
+  const c=G.card;
+
+  /* 場のカード（16） */
+  f[k+AGENT_TYPE[c.t]]=1; k+=5;
+  f[k++]=(c.t==='luxury'?c.v/10:0);
+  for(let v=1;v<=10;v++) f[k++]=(c.t==='luxury'&&c.v===v)?1:0;
+
+  /* 残り山札＝全員が知りうる公開情報（11） */
+  for(let i=0;i<4;i++) f[k++]=(G.greenSeen===i)?1:0;
+  f[k++]=G.deck.length/16;
+  let rl=0,rs=0,rp=0,rsc=0,rpa=0,rfx=0;
+  for(let i=0;i<G.deck.length;i++){
+    const d=G.deck[i];
+    if(d.t==='luxury'){ rl++; rs+=d.v; }
+    else if(d.t==='prestige') rp++;
+    else if(d.t==='scandal') rsc=1;
+    else if(d.t==='passe') rpa=1;
+    else rfx=1;
+  }
+  f[k++]=rl/10; f[k++]=rs/55; f[k++]=rp/3; f[k++]=rsc; f[k++]=rpa; f[k++]=rfx;
+
+  /* 自分（26） */
+  for(let i=0;i<MONEY.length;i++) f[k++]=(p.hand.indexOf(MONEY[i])>=0)?1:0;
+  const myMoney=sum(p.hand), own=sum(p.bid);
+  f[k++]=myMoney/106;
+  f[k++]=own/106;
+  f[k++]=sum(p.lux)/55;
+  f[k++]=p.lux.length/10;
+  f[k++]=(p.lux.length?Math.min.apply(null,p.lux):0)/10;
+  f[k++]=(p.lux.length?Math.max.apply(null,p.lux):0)/10;
+  f[k++]=p.prestige/3;
+  f[k++]=p.scandal?1:0;
+  f[k++]=p.passe?1:0;
+  f[k++]=p.fauxHeld?1:0;
+  f[k++]=scoreOf(p)/40;
+  f[k++]=(G.highBidder===p.idx)?1:0;
+  f[k++]=(G.highBid-own+1)/106;                       // 首位に立つのに必要な最低額
+  let minRaise=0;
+  for(let a=1;a<AGENT_NACT;a++) if(acts[a]){ minRaise=acts[a].total; break; }
+  f[k++]=minRaise/106;
+  f[k++]=minRaise?1:0;
+
+  /* 競りの状況（4） */
+  f[k++]=G.highBid/106;
+  f[k++]=activeCount(G)/4;
+  f[k++]=isDisgrace(c)?1:0;
+  let live=0;
+  for(let i=0;i<G.players.length;i++) if(G.players[i]!==p && !G.players[i].passed) live++;
+  f[k++]=live/3;
+
+  /* 相手（自分の次の手番から順に3人×10＝30） */
+  const n=G.players.length;
+  let minOther=1e9, maxOtherScore=-1e9, poorerThanMe=0;
+  for(let d=1;d<=3;d++){
+    const o=G.players[(p.idx+d)%n];
+    const om=sum(o.hand), os=scoreOf(o);
+    if(om<minOther) minOther=om;
+    if(os>maxOtherScore) maxOtherScore=os;
+    if(om<myMoney) poorerThanMe++;
+    f[k++]=om/106;
+    f[k++]=sum(o.bid)/106;
+    f[k++]=o.passed?1:0;
+    f[k++]=sum(o.lux)/55;
+    f[k++]=o.prestige/3;
+    f[k++]=o.scandal?1:0;
+    f[k++]=o.passe?1:0;
+    f[k++]=os/40;
+    f[k++]=(G.highBidder===o.idx)?1:0;
+    f[k++]=(myMoney-om)/106;
+  }
+
+  /* 全体の位置取り（4） */
+  f[k++]=(myMoney-minOther)/106;
+  f[k++]=(myMoney<=minOther)?1:0;                     // 今このまま終われば脱落
+  f[k++]=(scoreOf(p)-maxOtherScore)/40;
+  f[k++]=poorerThanMe/3;
+  return f;
+}
+
+/* ---- 方策ネットワーク ---- */
+function agentNewNet(h1,h2){
+  const nIn=AGENT_NFEAT, nOut=AGENT_NACT+1;           // 末尾1つは状態価値
+  return {nIn:nIn,h1:h1,h2:h2,nOut:nOut,
+    W1:new Float32Array(h1*nIn), B1:new Float32Array(h1),
+    W2:new Float32Array(h2*h1), B2:new Float32Array(h2),
+    W3:new Float32Array(nOut*h2),B3:new Float32Array(nOut),
+    a1:new Float32Array(h1), a2:new Float32Array(h2), out:new Float32Array(nOut)};
+}
+function agentForward(n,x){
+  const a1=n.a1, a2=n.a2, o=n.out;
+  for(let j=0;j<n.h1;j++){ let s=n.B1[j]; const r=j*n.nIn; for(let i=0;i<n.nIn;i++) s+=n.W1[r+i]*x[i]; a1[j]=s>0?s:0; }
+  for(let j=0;j<n.h2;j++){ let s=n.B2[j]; const r=j*n.h1;  for(let i=0;i<n.h1;i++) s+=n.W2[r+i]*a1[i]; a2[j]=s>0?s:0; }
+  for(let j=0;j<n.nOut;j++){ let s=n.B3[j]; const r=j*n.h2; for(let i=0;i<n.h2;i++) s+=n.W3[r+i]*a2[i]; o[j]=s; }
+  return o;
+}
+function agentProbs(logits,acts,T){
+  const pr=new Float64Array(AGENT_NACT); let mx=-Infinity, z=0;
+  for(let a=0;a<AGENT_NACT;a++) if(acts[a]&&logits[a]>mx) mx=logits[a];
+  for(let a=0;a<AGENT_NACT;a++){ if(!acts[a]){ pr[a]=0; continue; } const e=Math.exp((logits[a]-mx)/T); pr[a]=e; z+=e; }
+  for(let a=0;a<AGENT_NACT;a++) pr[a]/=z;
+  return pr;
+}
+function agentSample(pr,rnd){
+  let r=(rnd||Math.random)(), s=0;
+  for(let a=0;a<AGENT_NACT;a++){ s+=pr[a]; if(r<s) return a; }
+  for(let a=AGENT_NACT-1;a>=0;a--) if(pr[a]>0) return a;
+  return 0;
+}
+function agentEval(net,G,p){
+  const acts=agentActions(G,p), f=agentFeatures(G,p,acts), o=agentForward(net,f);
+  return {acts:acts, f:f, logits:o, value:o[AGENT_NACT]};
+}
+
+/* ---- 学習済み重みの読み込み（int8量子化＋Base64） ---- */
+const AGENT_DATA=null;   /* WEIGHTS */
+let AGENT_CACHE;
+function agentBytes(s){
+  if(typeof atob==='function'){
+    const b=atob(s), a=new Int8Array(b.length);
+    for(let i=0;i<b.length;i++) a[i]=(b.charCodeAt(i)<<24)>>24;
+    return a;
+  }
+  const buf=Buffer.from(s,'base64');
+  return new Int8Array(buf.buffer,buf.byteOffset,buf.length);
+}
+function agentNet(){
+  if(AGENT_CACHE!==undefined) return AGENT_CACHE;
+  AGENT_CACHE=null;
+  if(AGENT_DATA){
+    const d=AGENT_DATA, q=agentBytes(d.w), n=agentNewNet(d.h[0],d.h[1]);
+    let k=0;
+    const fill=(W,rows,cols,sc)=>{ for(let r=0;r<rows;r++){ const s=sc[r]; for(let i=0;i<cols;i++) W[r*cols+i]=q[k++]*s; } };
+    fill(n.W1,d.h[0],AGENT_NFEAT,d.s[0]);
+    fill(n.W2,d.h[1],d.h[0],d.s[1]);
+    fill(n.W3,AGENT_NACT+1,d.h[1],d.s[2]);
+    n.B1.set(d.b[0]); n.B2.set(d.b[1]); n.B3.set(d.b[2]);
+    AGENT_CACHE=n;
+  }
+  return AGENT_CACHE;
+}
+function agentUseNet(n){ AGENT_CACHE=n; }        // 学習・評価用の差し替え口
+
+// cpuMove と同じ形（{pass:true} か {idxs:[...]}）を返す
+function agentMove(G,temp){
+  const p=G.players[G.actor];
+  if(!canRaise(G,p)) return {pass:true};
+  const net=agentNet();
+  if(!net) return cpuMove(G);                    // 重み未搭載なら従来の思考ルーチン
+  const e=agentEval(net,G,p);
+  const a=agentSample(agentProbs(e.logits,e.acts,temp==null?AGENT_TEMP:temp));
+  return a===0 ? {pass:true} : {idxs:e.acts[a].idxs};
+}
+
+/* ============================================================
+   AGENT_END
+   ============================================================ */
+
 /* ---------- 描画 ---------- */
 const PERSONAS=[{rate:1.0},{rate:0.92},{rate:1.0},{rate:1.12}];
 const NAMES=['あなた','デュボワ夫人','ラヴァル伯爵','ムッシュ・アルノー'];
 let G=null, sel=[], showPurse=false, busy=false, screen='title';
+let level='hard';          // hard=学習AI / easy=従来の思考ルーチン
+function rivalMove(G){ return level==='hard' ? agentMove(G) : cpuMove(G); }
+function newGame(){
+  G=createGame(NAMES,PERSONAS); sel=[]; screen='play';
+  say(G,'相手 ── '+(level==='hard'&&agentNet()?'学習AI（本気）':'従来CPU（ひかえめ）'),'');
+  render(); step();
+}
 const app=document.getElementById('app');
 const esc=s=>String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
 
@@ -874,7 +1089,7 @@ function step(){
   if(G.actor===0){ busy=false; render(); return; }
   busy=true; render();
   setTimeout(()=>{
-    const p=G.players[G.actor], mv=cpuMove(G);
+    const p=G.players[G.actor], mv=rivalMove(G);
     if(mv.pass) applyPass(G,p); else applyBid(G,p,mv.idxs);
     busy=false; render(); step();
   }, 750+Math.random()*450);
@@ -882,13 +1097,25 @@ function step(){
 
 function renderTitle(){
   document.body.classList.remove('inverted');
-  app.innerHTML='<div class="top"><div class="wordmark">HIGH SOCIETY<small>ライナー・クニツィア</small></div></div>'
+  const trained=!!agentNet();
+  let h='<div class="top"><div class="wordmark">HIGH SOCIETY<small>ライナー・クニツィア</small></div></div>'
    +'<div class="stage" style="padding-top:22px">'+heroSVG()
    +'<div class="ask" style="margin-top:14px">見栄を張るのは、金のあるうちだけ</div>'
-   +'<div class="high">4人対戦（あなた＋3名）</div></div>'
-   +'<div class="acts" style="margin-top:28px"><button class="btn primary" id="start">はじめる</button>'
+   +'<div class="high">4人対戦（あなた＋3名）</div></div>';
+  if(trained){
+    h+='<div class="staged" style="margin-top:22px;text-align:center">対戦相手</div>'
+      +'<div class="acts" style="margin-top:6px">'
+      +'<button class="btn lv'+(level==='hard'?' primary':'')+'" data-lv="hard">本気</button>'
+      +'<button class="btn lv'+(level==='easy'?' primary':'')+'" data-lv="easy">ひかえめ</button></div>'
+      +'<div class="staged" style="text-align:center">'
+      +(level==='hard'?'自己対戦で鍛えた学習AI。残金と終幕を読んで競ってくる。'
+                      :'従来の思考ルーチン。手加減してくれる。')+'</div>';
+  }
+  h+='<div class="acts" style="margin-top:18px"><button class="btn primary" id="start">はじめる</button>'
    +'<button class="btn" id="rules2">ルール</button></div>';
-  app.querySelector('#start').onclick=()=>{ G=createGame(NAMES,PERSONAS); sel=[]; screen='play'; render(); step(); };
+  app.innerHTML=h;
+  app.querySelectorAll('.lv').forEach(b=>b.onclick=()=>{ level=b.dataset.lv; renderTitle(); });
+  app.querySelector('#start').onclick=newGame;
   app.querySelector('#rules2').onclick=()=>{ screen='rules'; renderRules(); };
 }
 
@@ -923,7 +1150,7 @@ function renderEnd(){
   h+='<div class="acts"><button class="btn primary" id="again">もう一度</button><button class="btn" id="rules3">ルール</button></div>';
   h+='<div class="log" style="max-height:200px">'+G.log.slice(0,60).map(l=>'<p class="'+l.cls+'">'+esc(l.text)+'</p>').join('')+'</div></div>';
   app.innerHTML=h;
-  app.querySelector('#again').onclick=()=>{ G=createGame(NAMES,PERSONAS); sel=[]; render(); step(); };
+  app.querySelector('#again').onclick=newGame;
   app.querySelector('#rules3').onclick=()=>{ screen='rules'; renderRules(); };
 }
 
