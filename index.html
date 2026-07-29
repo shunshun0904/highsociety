@@ -633,10 +633,21 @@ function agentMove(G,temp){
    （か終局）まで方策で進め、そこでの価値を平均して比べる。
    山札の順序は伏せられているので、複製した局面では必ず切り直す（覗き見の防止）。
    ============================================================ */
-const AGENT_ROLLOUTS=12;    // 候補手ごとの試行回数
+const AGENT_ROLLOUTS=16;    // 候補手ごとの試行回数
+let AGENT_SEED=(Math.random()*4294967296)>>>0;   // 試行の乱数の起点
 const AGENT_PRUNE=0.02;     // 方策がこれ未満しか推さない手は試さない
 
-function agentClone(G){
+// 試行ごとに同じ乱数列を各候補手へ与えるための小さな乱数（対応のある比較にする）
+function agentRng(seed){
+  let s=(seed>>>0)||1;
+  return function(){ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; };
+}
+function agentShuffle(a,rnd){
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; }
+  return a;
+}
+
+function agentClone(G,rnd){
   const ps=new Array(G.players.length);
   for(let i=0;i<G.players.length;i++){
     const p=G.players[i];
@@ -645,13 +656,13 @@ function agentClone(G){
       lux:p.lux.slice(), prestige:p.prestige, passe:p.passe, scandal:p.scandal,
       fauxHeld:p.fauxHeld, pendingFaux:p.pendingFaux};
   }
-  return {players:ps, deck:shuffle(G.deck.slice()), card:G.card,
+  return {players:ps, deck:agentShuffle(G.deck.slice(),rnd), card:G.card,
     starter:G.starter, actor:G.actor, highBid:G.highBid, highBidder:G.highBidder,
     greenSeen:G.greenSeen, phase:G.phase, pending:G.pending, log:[]};
 }
 
 // 自分の次の判断どころ（＝学習時と同じ局面）か終局まで進め、そこでの価値を返す
-function agentRollValue(net,G,me,temp){
+function agentRollValue(net,G,me,temp,rnd){
   let guard=0;
   while(guard++<300){
     if(G.phase==='over') break;
@@ -663,7 +674,7 @@ function agentRollValue(net,G,me,temp){
     if(!canRaise(G,p)) mv={pass:true};
     else {
       const e=agentEval(net,G,p);
-      const a=agentSample(agentProbs(e.logits,e.acts,temp));
+      const a=agentSample(agentProbs(e.logits,e.acts,temp),rnd);
       mv = a===0 ? {pass:true} : {idxs:e.acts[a].idxs};
     }
     if(mv.pass) applyPass(G,p); else applyBid(G,p,mv.idxs);
@@ -690,18 +701,19 @@ function agentSearchMove(G,opt){
   const keep=order.filter((a,i)=>i<2||pr[a]>=AGENT_PRUNE);
   if(keep.length===1) return keep[0]===0?{pass:true}:{idxs:e.acts[keep[0]].idxs};
 
-  let bestA=keep[0], bestV=-Infinity;
-  for(const a of keep){
-    let s=0;
-    for(let k=0;k<K;k++){
-      const c=agentClone(G);
-      const q=c.players[me];
+  // 試行 k では山札の切り方も相手の迷いも全候補手で共通にし、手の違いだけを見る
+  const sum=new Float64Array(AGENT_NACT);
+  for(let k=0;k<K;k++){
+    const seed=(AGENT_SEED+=0x9e3779b9)>>>0;
+    for(const a of keep){
+      const rnd=agentRng(seed);
+      const c=agentClone(G,rnd), q=c.players[me];
       if(a===0) applyPass(c,q); else applyBid(c,q,e.acts[a].idxs);
-      s+=agentRollValue(net,c,me,temp);
+      sum[a]+=agentRollValue(net,c,me,temp,rnd);
     }
-    const v=s/K;
-    if(v>bestV){ bestV=v; bestA=a; }
   }
+  let bestA=keep[0], bestV=-Infinity;
+  for(const a of keep){ const v=sum[a]/K; if(v>bestV){ bestV=v; bestA=a; } }
   return bestA===0 ? {pass:true} : {idxs:e.acts[bestA].idxs};
 }
 
@@ -713,8 +725,8 @@ function agentSearchMove(G,opt){
 const PERSONAS=[{rate:1.0},{rate:0.92},{rate:1.0},{rate:1.12}];
 const NAMES=['あなた','デュボワ夫人','ラヴァル伯爵','ムッシュ・アルノー'];
 let G=null, sel=[], showPurse=false, busy=false, screen='title';
-let level='hard';          // hard=学習AI / easy=従来の思考ルーチン
-function rivalMove(G){ return level==='hard' ? agentMove(G) : cpuMove(G); }
+let level='hard';          // hard=学習AI（先読みあり）/ easy=従来の思考ルーチン
+function rivalMove(G){ return level==='hard' ? agentSearchMove(G) : cpuMove(G); }
 function newGame(){
   G=createGame(NAMES,PERSONAS); sel=[]; screen='play';
   say(G,'相手 ── '+(level==='hard'&&agentNet()?'学習AI（本気）':'従来CPU（ひかえめ）'),'');
