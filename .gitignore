@@ -7,3 +7,4 @@ train/champion.exploiter.json
 train/league-log*.json
 train/weights-wide.json
 train/weights-wide.best.json
+train/weights-distill.json
