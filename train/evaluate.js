@@ -8,7 +8,7 @@ const { playGame } = require('./game');
 function seatOf(s) {
   if (s.kind === 'cpu') return { kind: 'cpu' };
   if (s.kind === 'random') return { kind: 'random' };
-  if (s.kind === 'search') return { kind: 'search', net: s.net, temp: s.temp, rollouts: s.rollouts };
+  if (s.kind === 'search') return { kind: 'search', net: s.net, temp: s.temp, rollouts: s.rollouts, depth: s.depth };
   return { kind: 'net', net: s.net, temp: s.temp };
 }
 

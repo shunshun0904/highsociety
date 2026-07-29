@@ -634,6 +634,7 @@ function agentMove(G,temp){
    山札の順序は伏せられているので、複製した局面では必ず切り直す（覗き見の防止）。
    ============================================================ */
 const AGENT_ROLLOUTS=16;    // 候補手ごとの試行回数
+const AGENT_DEPTH=1;       // 自分の判断どころを何回ぶん読み進めてから価値で打ち切るか
 let AGENT_SEED=(Math.random()*4294967296)>>>0;   // 試行の乱数の起点
 const AGENT_PRUNE=0.02;     // 方策がこれ未満しか推さない手は試さない
 
@@ -661,15 +662,16 @@ function agentClone(G,rnd){
     greenSeen:G.greenSeen, phase:G.phase, pending:G.pending, log:[]};
 }
 
-// 自分の次の判断どころ（＝学習時と同じ局面）か終局まで進め、そこでの価値を返す
-function agentRollValue(net,G,me,temp,rnd){
-  let guard=0;
-  while(guard++<300){
+// 自分の判断どころを depth 回ぶん読み進め（か終局）、その地点の価値を返す。
+// 打ち切り地点は学習時とそろえて「自分が判断する局面」にしてある
+function agentRollValue(net,G,me,temp,rnd,depth){
+  let left=(depth==null?AGENT_DEPTH:depth), guard=0;
+  while(guard++<400){
     if(G.phase==='over') break;
     if(G.phase==='faux'){ resolveFaux(G,cpuFauxChoice(G.players[G.pending.player])); continue; }
     const p=G.players[G.actor];
     const mine=(p.idx===me);
-    if(mine && canRaise(G,p)) break;
+    if(mine && canRaise(G,p) && --left<=0) break;
     let mv;
     if(!canRaise(G,p)) mv={pass:true};
     else {
@@ -687,6 +689,7 @@ function agentRollValue(net,G,me,temp,rnd){
 function agentSearchMove(G,opt){
   opt=opt||{};
   const K=opt.rollouts||AGENT_ROLLOUTS, temp=opt.temp==null?AGENT_TEMP:opt.temp;
+  const depth=opt.depth||AGENT_DEPTH;
   const p=G.players[G.actor], me=p.idx;
   if(!canRaise(G,p)) return {pass:true};
   const net=agentNet();
@@ -709,7 +712,7 @@ function agentSearchMove(G,opt){
       const rnd=agentRng(seed);
       const c=agentClone(G,rnd), q=c.players[me];
       if(a===0) applyPass(c,q); else applyBid(c,q,e.acts[a].idxs);
-      sum[a]+=agentRollValue(net,c,me,temp,rnd);
+      sum[a]+=agentRollValue(net,c,me,temp,rnd,depth);
     }
   }
   let bestA=keep[0], bestV=-Infinity;

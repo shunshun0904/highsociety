@@ -32,7 +32,7 @@ function playGame(seats, rnd, sink) {
       mv = { pass: true };                       // 上乗せできない＝降りるしかない
     } else if (s.kind === 'search') {
       api.agentUseNet(s.net);
-      mv = api.agentSearchMove(G, { temp: s.temp, rollouts: s.rollouts });
+      mv = api.agentSearchMove(G, { temp: s.temp, rollouts: s.rollouts, depth: s.depth });
     } else {
       const acts = api.agentActions(G, p);
       let a;
