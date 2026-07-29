@@ -139,5 +139,6 @@ node train/league.js --mode=exploit --target=train/champion.json --hours=0.5
 | `export.js` | 重みを int8 量子化して `index.html` に埋め込む |
 | `verify.js` | 埋め込み後の強さを実測する |
 | `widen.js` | 学習済みの網を関数等価に太らせる（net2net widening） |
+| `compare.js` | 2つの重みを直接対戦させて優劣を決める |
 | `selftest.js` | ロジックと先読みの安全性の検査 |
 | `weights.json` | 学習した重み（float32・リポジトリには含めない） |
