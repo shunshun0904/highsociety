@@ -30,11 +30,12 @@ const CFG = {
   rounds: num('rounds', 8),
   games: num('games', 400),          // 1周あたりの先読み自己対戦の局数
   workers: num('workers', Math.max(1, Math.min(4, os.cpus().length - 1))),
-  epochs: num('epochs', 4),
+  epochs: num('epochs', 2),
   mb: num('mb', 1024),
-  lr: num('lr', 2e-4),
+  lr: num('lr', 1e-4),
   vf: num('vf', 0.5),
   ent: num('ent', 0.002),
+  tau: num('tau', 0.03),        // 目標のやわらかさ（評価値の差をどれだけ効かせるか）
   temp: num('temp', 0.85),
   rollouts: num('rollouts', 12),
   depth: num('depth', 2),
@@ -69,7 +70,7 @@ function collect() {
     const onMsg = m => { wk.off('error', onErr); res(m); };
     const onErr = e => { wk.off('message', onMsg); rej(e); };
     wk.once('message', onMsg); wk.once('error', onErr);
-    wk.postMessage({ mode: 'distill', w, games: per, temp: CFG.temp, rollouts: CFG.rollouts, depth: CFG.depth });
+    wk.postMessage({ mode: 'distill', w, games: per, temp: CFG.temp, rollouts: CFG.rollouts, depth: CFG.depth, tau: CFG.tau });
   })));
 }
 function save(file, extra) {
@@ -89,12 +90,12 @@ function save(file, extra) {
     let n = 0, games = 0;
     for (const p of parts) { n += p.n; games += p.games; }
     const nIn = api.AGENT_NFEAT, nAct = api.AGENT_NACT;
-    const X = new Float32Array(n * nIn), mask = new Uint8Array(n * nAct);
-    const act = new Uint8Array(n), ret = new Float32Array(n);
+    const X = new Float32Array(n * nIn), mask = new Uint8Array(n * nAct), tgt = new Float32Array(n * nAct);
+    const ret = new Float32Array(n);
     let k = 0;
     for (const p of parts) {
-      X.set(p.X, k * nIn); mask.set(p.mask, k * nAct);
-      act.set(p.act, k); ret.set(p.ret, k);
+      X.set(p.X, k * nIn); mask.set(p.mask, k * nAct); tgt.set(p.tgt, k * nAct);
+      ret.set(p.ret, k);
       k += p.n;
     }
     const msC = Date.now() - tC;
@@ -104,7 +105,7 @@ function save(file, extra) {
     for (let i = 0; i < n; i++) idx[i] = i;
     const b = {
       X: new Float32Array(CFG.mb * nIn), mask: new Uint8Array(CFG.mb * nAct),
-      act: new Uint8Array(CFG.mb), ret: new Float32Array(CFG.mb)
+      tgt: new Float32Array(CFG.mb * nAct), ret: new Float32Array(CFG.mb)
     };
     let st = null, first = null;
     const tU = Date.now();
@@ -116,9 +117,10 @@ function save(file, extra) {
           const src = idx[s + q];
           b.X.set(X.subarray(src * nIn, src * nIn + nIn), q * nIn);
           b.mask.set(mask.subarray(src * nAct, src * nAct + nAct), q * nAct);
-          b.act[q] = act[src]; b.ret[q] = ret[src];
+          b.tgt.set(tgt.subarray(src * nAct, src * nAct + nAct), q * nAct);
+          b.ret[q] = ret[src];
         }
-        st = tr.supervised({ n: m, X: b.X, mask: b.mask, act: b.act, ret: b.ret },
+        st = tr.supervised({ n: m, X: b.X, mask: b.mask, tgt: b.tgt, ret: b.ret },
           { lr: CFG.lr, vf: CFG.vf, ent: CFG.ent });
         if (!first) first = st;
       }

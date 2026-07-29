@@ -702,6 +702,7 @@ function agentSearchMove(G,opt){
   for(let a=0;a<AGENT_NACT;a++) if(e.acts[a]) order.push(a);
   order.sort((x,y)=>pr[y]-pr[x]);
   const keep=order.filter((a,i)=>i<2||pr[a]>=AGENT_PRUNE);
+  if(opt.out){ opt.out.keep=keep; opt.out.mean=null; }
   if(keep.length===1) return keep[0]===0?{pass:true}:{idxs:e.acts[keep[0]].idxs};
 
   // 試行 k では山札の切り方も相手の迷いも全候補手で共通にし、手の違いだけを見る
@@ -717,6 +718,7 @@ function agentSearchMove(G,opt){
   }
   let bestA=keep[0], bestV=-Infinity;
   for(const a of keep){ const v=sum[a]/K; if(v>bestV){ bestV=v; bestA=a; } }
+  if(opt.out){ const m=new Float64Array(AGENT_NACT); for(const a of keep) m[a]=sum[a]/K; opt.out.mean=m; }
   return bestA===0 ? {pass:true} : {idxs:e.acts[bestA].idxs};
 }
 

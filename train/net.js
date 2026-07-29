@@ -151,7 +151,7 @@ class Trainer {
      戻り値の acc は「方策が先読みと同じ手を最上位に置けた割合」 */
   supervised(batch, opt) {
     const n = batch.n;
-    const { X, act, ret, mask } = batch;
+    const { X, tgt, ret, mask } = batch;
     const nAct = this.nAct, nOut = this.nOut;
     this.forward(X, n);
     const O = this.O, D3 = this.D3;
@@ -169,21 +169,22 @@ class Trainer {
         if (!mask[mo + a]) { pr[a] = 0; continue; }
         const e = Math.exp(O[oo + a] - mx); pr[a] = e; z += e;
       }
-      let H0 = 0, best = -1, bestP = -1;
+      let H0 = 0, best = -1, bestP = -1, want = -1, wantT = -1;
       for (let a = 0; a < nAct; a++) {
         pr[a] /= z;
         if (pr[a] > 0) H0 -= pr[a] * Math.log(pr[a]);
         if (pr[a] > bestP) { bestP = pr[a]; best = a; }
+        const t = tgt[mo + a];
+        if (t > wantT) { wantT = t; want = a; }
+        if (t > 0) ce += -t * Math.log(pr[a] + 1e-12);
       }
-      const a0 = act[b];
-      ce += -Math.log(pr[a0] + 1e-12);
       el += H0;
-      if (best === a0) hit++;
+      if (best === want) hit++;
 
-      // 交差エントロピーの勾配（正解の手の確率を上げる）＋ わずかなエントロピー項
+      // やわらかい目標との交差エントロピー。勾配は（今の確率 − 目標）
       for (let a = 0; a < nAct; a++) {
         if (!mask[mo + a]) continue;
-        let d = pr[a] - (a === a0 ? 1 : 0);
+        let d = pr[a] - tgt[mo + a];
         d += ent * pr[a] * (Math.log(pr[a] + 1e-12) + H0);
         D3[oo + a] = d / n;
       }
