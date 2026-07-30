@@ -19,7 +19,7 @@ const path = require('path');
 const os = require('os');
 const H = require('./harness');
 const { Runner } = require('./runner');
-const { match, duel } = require('./evaluate');
+const { match, duelField } = require('./evaluate');
 const api = H.api();
 
 const argv = {};
@@ -50,9 +50,9 @@ const CFG = {
   pCpu: num('pCpu', 0.08),
   pPool: num('pPool', 0.34),         // 歴代王者と当たる割合
   poolMax: num('poolMax', 10),
-  gateGames: num('gateGames', 2000),
+  gateGames: num('gateGames', 4000),  // 対戦は学習より桁違いに軽いので厚くした（1ゲート約20秒）
   gateTemp: num('gateTemp', 0.6),
-  margin: num('margin', 0.010),      // 王座交代に必要な差（対応のある比較にしたので下げた）
+  margin: num('margin', 0.008),      // 王座交代に必要な差（対応のある比較にしたので下げた）
   gateSigma: num('gateSigma', 1.5),  // 差が標準誤差の何倍を超えたら交代とみなすか
   patience: num('patience', 4),      // 連敗がこれに達したら王者に引き戻す
   seed: num('seed', 424242),
@@ -121,13 +121,14 @@ if (CFG.mode === 'exploit') {
 
       if (it % CFG.gate !== 0) continue;
 
-      // 挑戦者 vs 王者。1人対3人を両向きに、同一シード＝同じ配牌で役を入れ替えて判定する
+      // 挑戦者 vs 王者。王者だらけの卓の1席だけを入れ替え、同一シード＝同じ配牌で判定する
+      // （配牌と相手の顔ぶれが共通になるので、差のノイズが従来の 1/1.4 に落ちる）
       const me = run.net(), T = CFG.gateTemp, N = CFG.gateGames;
-      const g = duel({ kind: 'net', net: me, temp: T }, { kind: 'net', net: championNet, temp: T }, N, 900 + it);
+      const g = duelField({ kind: 'net', net: me, temp: T }, { kind: 'net', net: championNet, temp: T }, N, 900 + it);
       const diff = g.diff;
       const promoted = diff > CFG.margin && diff > CFG.gateSigma * g.se;
 
-      let line = '  ── 挑戦 ' + g.a.toFixed(3) + ' vs 王者 ' + g.b.toFixed(3) +
+      let line = '  ── 王者の卓で 挑戦者 ' + g.a.toFixed(3) + ' / 王者 ' + g.b.toFixed(3) +
         '（差 ' + (diff >= 0 ? '+' : '') + diff.toFixed(3) + ' ±' + g.se.toFixed(3) +
         ' = ' + (diff / (g.se || 1e-9)).toFixed(1) + 'σ）';
       if (promoted) {
