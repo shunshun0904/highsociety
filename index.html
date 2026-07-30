@@ -734,7 +734,7 @@ let level='hard';          // hard=学習AI（先読みあり）/ easy=従来の
 function rivalMove(G){ return level==='hard' ? agentSearchMove(G) : cpuMove(G); }
 function newGame(){
   G=createGame(NAMES,PERSONAS); sel=[]; screen='play';
-  say(G,'相手 ── '+(level==='hard'&&agentNet()?'学習AI（本気）':'従来CPU（ひかえめ）'),'');
+  say(G,'相手 ── '+(level==='hard'&&agentNet()?'ハード（学習AI＋先読み）':'イージー（従来の思考ルーチン）'),'');
   render(); step();
 }
 const app=document.getElementById('app');
@@ -1240,8 +1240,8 @@ function renderTitle(){
   if(trained){
     h+='<div class="staged" style="margin-top:22px;text-align:center">対戦相手</div>'
       +'<div class="acts" style="margin-top:6px">'
-      +'<button class="btn lv'+(level==='hard'?' primary':'')+'" data-lv="hard">本気</button>'
-      +'<button class="btn lv'+(level==='easy'?' primary':'')+'" data-lv="easy">ひかえめ</button></div>'
+      +'<button class="btn lv'+(level==='hard'?' primary':'')+'" data-lv="hard">ハード（AI）</button>'
+      +'<button class="btn lv'+(level==='easy'?' primary':'')+'" data-lv="easy">イージー（AI）</button></div>'
       +'<div class="staged" style="text-align:center">'
       +(level==='hard'?'自己対戦で鍛えた学習AI。残金と終幕を読んで競ってくる。'
                       :'従来の思考ルーチン。手加減してくれる。')+'</div>';
