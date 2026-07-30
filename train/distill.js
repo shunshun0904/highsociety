@@ -36,6 +36,7 @@ const CFG = {
   vf: num('vf', 0.5),
   ent: num('ent', 0.002),
   tau: num('tau', 0.03),        // 目標のやわらかさ（評価値の差をどれだけ効かせるか）
+  shape: num('shape', 0.0), pot: num('pot', 0.5), potM: num('potM', 0.4),
   temp: num('temp', 0.85),
   rollouts: num('rollouts', 12),
   depth: num('depth', 2),
@@ -48,6 +49,7 @@ const CFG = {
 console.log('設定 ' + JSON.stringify(CFG));
 
 const api = H.api();
+api.agentSetShape(CFG.shape); api.agentSetPot(CFG.pot, CFG.potM);
 const tr = new Trainer(CFG.h1, CFG.h2, CFG.seed);
 tr.load(H.loadWeights(CFG.init));
 console.log('出発点: ' + CFG.init);
@@ -70,11 +72,13 @@ function collect() {
     const onMsg = m => { wk.off('error', onErr); res(m); };
     const onErr = e => { wk.off('message', onMsg); rej(e); };
     wk.once('message', onMsg); wk.once('error', onErr);
-    wk.postMessage({ mode: 'distill', w, games: per, temp: CFG.temp, rollouts: CFG.rollouts, depth: CFG.depth, tau: CFG.tau });
+    wk.postMessage({ mode: 'distill', w, games: per, temp: CFG.temp, rollouts: CFG.rollouts, depth: CFG.depth,
+      tau: CFG.tau, shape: CFG.shape, pot: [CFG.pot, CFG.potM] });
   })));
 }
 function save(file, extra) {
-  const o = { h1: CFG.h1, h2: CFG.h2, nIn: api.AGENT_NFEAT, nAct: api.AGENT_NACT };
+  const o = { h1: CFG.h1, h2: CFG.h2, nIn: api.AGENT_NFEAT, nAct: api.AGENT_NACT,
+    shape: CFG.shape, pot: [CFG.pot, CFG.potM] };
   for (const k of ['W1', 'B1', 'W2', 'B2', 'W3', 'B3']) o[k] = Array.from(champion[k]);
   Object.assign(o, extra || {});
   fs.writeFileSync(file, JSON.stringify(o));

@@ -52,7 +52,9 @@ for (let r = 0; r < nOut; r++) {
   B3[r] = w.B3[r];
 }
 
-const out = { h1: H1, h2: H2, nIn: nIn, nAct: api.AGENT_NACT, widenedFrom: [w.h1, w.h2] };
+// 報酬の定義は太らせても変わらないので引き継ぐ（export.js が埋め込みに使う）
+const out = { h1: H1, h2: H2, nIn: nIn, nAct: api.AGENT_NACT, widenedFrom: [w.h1, w.h2],
+  shape: w.shape, pot: w.pot };
 for (const [k, a] of [['W1', W1], ['B1', B1], ['W2', W2], ['B2', B2], ['W3', W3], ['B3', B3]]) out[k] = Array.from(a);
 const dst = argv.out || path.join(__dirname, 'weights-wide.json');
 fs.writeFileSync(dst, JSON.stringify(out));

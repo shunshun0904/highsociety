@@ -58,11 +58,12 @@ class Runner {
       const onMsg = m => { wk.off('error', onErr); res(m); };
       const onErr = e => { wk.off('message', onMsg); rej(e); };
       wk.once('message', onMsg); wk.once('error', onErr);
-      wk.postMessage({ w, pool: this.pool, games: per, temp: opt.temp, pCpu: opt.pCpu, pPool: opt.pPool });
+      wk.postMessage({ w, pool: this.pool, games: per, temp: opt.temp, pCpu: opt.pCpu, pPool: opt.pPool,
+        gamma: this.cfg.gamma, lam: this.cfg.lam, shape: opt.shape, pot: opt.pot });
     })));
   }
 
-  /* 1反復。opt = {lr, ent, temp, pCpu, pPool} */
+  /* 1反復。opt = {lr, ent, temp, pCpu, pPool, shape, pot} */
   async iterate(opt) {
     const cfg = this.cfg, api = this.api;
     const tR = Date.now();
@@ -73,18 +74,17 @@ class Runner {
     for (const p of parts) { n += p.n; games += p.games; wins += p.wins; seats += p.seatsLearned; }
     const nIn = api.AGENT_NFEAT, nAct = api.AGENT_NACT;
     const X = new Float32Array(n * nIn), mask = new Uint8Array(n * nAct);
-    const act = new Uint8Array(n), oldlp = new Float32Array(n), val = new Float32Array(n), ret = new Float32Array(n);
+    const act = new Uint8Array(n), oldlp = new Float32Array(n), adv = new Float32Array(n), ret = new Float32Array(n);
     let k = 0;
     for (const p of parts) {
       X.set(p.X, k * nIn); mask.set(p.mask, k * nAct);
-      act.set(p.act, k); oldlp.set(p.oldlp, k); val.set(p.val, k); ret.set(p.ret, k);
+      act.set(p.act, k); oldlp.set(p.oldlp, k); adv.set(p.adv, k); ret.set(p.ret, k);
       k += p.n;
     }
 
-    // 優位性＝実際の報酬 − 状態価値の見積り。平均0・分散1に正規化する
-    const adv = new Float32Array(n);
+    // 優位性は GAE で席ごとに積んである（game.js）。ここでは平均0・分散1に正規化するだけ
     let mu = 0;
-    for (let i = 0; i < n; i++) { adv[i] = ret[i] - val[i]; mu += adv[i]; }
+    for (let i = 0; i < n; i++) mu += adv[i];
     mu /= n;
     let sd = 0;
     for (let i = 0; i < n; i++) sd += (adv[i] - mu) * (adv[i] - mu);

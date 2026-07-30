@@ -392,8 +392,9 @@ function cpuFauxChoice(p){ return Math.min.apply(null,p.lux); }   // 一番安�
    ここは学習側からも同じコードとして読み込まれる。
    ============================================================ */
 
-const AGENT_STEPS=[1,2,3,5,8,13,21,34];   // 「最高額＋d 以上になる最小の組合せ」を候補手とする
-const AGENT_NACT=AGENT_STEPS.length+1;    // 0番は「降りる（不名誉なら引き取る）」
+const AGENT_STEPS=[1,2,3,5,8,13];         // 絶対額の上乗せ「最高額＋d 以上になる最小の組合せ」
+const AGENT_FRACS=[0.25,0.5];             // 残金に対する割合の上乗せ（絶対額の+21/+34 は使われないので置き換えた）
+const AGENT_NACT=AGENT_STEPS.length+AGENT_FRACS.length+1;   // 0番は「降りる（不名誉なら引き取る）」
 const AGENT_NFEAT=91;
 const AGENT_TEMP=0.85;                    // 方策のやわらかさ（小さいほど最善手に固執する）
 
@@ -414,18 +415,24 @@ function agentSums(hand){
 }
 function agentBits(m){ const a=[]; for(let i=0;i<16;i++) if(m&(1<<i)) a.push(i); return a; }
 
+// 上乗せ枠 a（0起点）が狙う「最高額からの上乗せ額」。後半は残金に対する割合で決める
+function agentStep(a,money){
+  if(a<AGENT_STEPS.length) return AGENT_STEPS[a];
+  return Math.max(1, Math.ceil(AGENT_FRACS[a-AGENT_STEPS.length]*money));
+}
+
 // 候補手を組み立てる。作れない額の枠は null（＝選べない手）として残す
 function agentActions(G,p){
   const own=sum(p.bid), t=agentSums(p.hand), acts=new Array(AGENT_NACT).fill(null);
   acts[0]={pass:true};
-  let prev=-1;
-  for(let a=0;a<AGENT_STEPS.length;a++){
-    let s=Math.max(1, G.highBid+AGENT_STEPS[a]-own);
+  const money=sum(p.hand), seen={};
+  for(let a=0;a<AGENT_NACT-1;a++){
+    let s=Math.max(1, G.highBid+agentStep(a,money)-own);
     while(s<=106 && !(t.cnt[s]!==127 && own+s>G.highBid)) s++;
     if(s>106) continue;
     const total=own+s;
-    if(total===prev) continue;            // 同額になる候補は1つに畳む
-    prev=total;
+    if(seen[total]) continue;            // 同額になる候補は1つに畳む（枠の並び順に依存しない）
+    seen[total]=1;
     acts[a+1]={total:total, idxs:agentBits(t.msk[s])};
   }
   return acts;
@@ -472,7 +479,7 @@ function agentFeatures(G,p,acts){
   f[k++]=(G.highBidder===p.idx)?1:0;
   f[k++]=(G.highBid-own+1)/106;                       // 首位に立つのに必要な最低額
   let minRaise=0;
-  for(let a=1;a<AGENT_NACT;a++) if(acts[a]){ minRaise=acts[a].total; break; }
+  for(let a=1;a<AGENT_NACT;a++) if(acts[a] && (!minRaise || acts[a].total<minRaise)) minRaise=acts[a].total;
   f[k++]=minRaise/106;
   f[k++]=minRaise?1:0;
 
@@ -543,12 +550,37 @@ function agentOutcome(G){
   }
   return {win:win, place:place, top:top.map(i=>rows[i].p.idx)};
 }
-// 学習で使う報酬。勝ちを主、順位を従（順位を少し混ぜると学習の立ち上がりが速い）
-const AGENT_SHAPE=0.15;
+// 学習で使う報酬。勝ちを主、順位を従（順位を少し混ぜると学習の立ち上がりが速い）。
+// 立ち上がりが済んだら順位の配分は 0 へ焼き鈍せるよう、可変にしてある
+let AGENT_SHAPE=0.15;
+function agentSetShape(x){ AGENT_SHAPE=x; }
 function agentReward(G){
   const o=agentOutcome(G), r=new Array(o.win.length);
   for(let i=0;i<r.length;i++) r[i]=(1-AGENT_SHAPE)*o.win[i]+AGENT_SHAPE*o.place[i];
   return r;
+}
+
+/* ---- 位置取りのポテンシャル（競りごとの中間報酬をつくるための足場） ----
+   終局まで報酬が来ないと、1席20回以上の判断すべてに同じ数字しか届かず、
+   どの上乗せが良かったのかを区別できない。そこで「他家との得点差・残金差」を
+   ポテンシャル Φ とし、中間報酬 r = γΦ(次) − Φ(今) を与える。
+   これは1局ぶんの合計が Φ(初手)（≒0）に畳まれるので、最適方策を変えずに
+   信用の配分だけを競りごとに割り振れる（potential-based reward shaping）。
+   代わりに価値関数は「終局報酬 − Φ」を学ぶことになるので、
+   先読みで葉の価値を読むときは Φ を足し戻す（agentRollValue）。
+   AGENT_POT が [0,0] のときは中間報酬なし＝従来と完全に同じ挙動。 */
+let AGENT_POT=[0,0];                       // [得点差の重み, 残金差の重み]
+function agentSetPot(a,b){ AGENT_POT=[a,b]; }
+function agentPotential(G,p){
+  if(!AGENT_POT[0]&&!AGENT_POT[1]) return 0;
+  const n=G.players.length;
+  let os=0, om=0;
+  for(let i=0;i<n;i++){
+    const q=G.players[i]; if(q===p) continue;
+    os+=scoreOf(q); om+=sum(q.hand)+sum(q.bid);   // 競り中の札は「まだ失っていない」ので足す
+  }
+  os/=(n-1); om/=(n-1);
+  return AGENT_POT[0]*(scoreOf(p)-os)/40 + AGENT_POT[1]*((sum(p.hand)+sum(p.bid))-om)/106;
 }
 
 /* ---- 方策ネットワーク ---- */
@@ -608,6 +640,10 @@ function agentNet(){
     fill(n.W2,d.h[1],d.h[0],d.s[1]);
     fill(n.W3,AGENT_NACT+1,d.h[1],d.s[2]);
     n.B1.set(d.b[0]); n.B2.set(d.b[1]); n.B3.set(d.b[2]);
+    // 学習時の報酬定義（順位の配分・ポテンシャルの重み）を重みと一緒に復元する。
+    // ここがずれると先読みが読む価値の意味が変わってしまう
+    if(d.sh!==undefined) AGENT_SHAPE=d.sh;
+    if(d.p) AGENT_POT=d.p.slice();
     AGENT_CACHE=n;
   }
   return AGENT_CACHE;
@@ -683,7 +719,8 @@ function agentRollValue(net,G,me,temp,rnd,depth){
   }
   if(G.phase==='over') return agentReward(G)[me];
   const p=G.players[me], acts=agentActions(G,p);
-  return agentForward(net,agentFeatures(G,p,acts))[AGENT_NACT];
+  // 価値関数は「終局報酬 − Φ」を学んでいるので、比較できる量に戻すため Φ を足す
+  return agentForward(net,agentFeatures(G,p,acts))[AGENT_NACT] + agentPotential(G,p);
 }
 
 function agentSearchMove(G,opt){

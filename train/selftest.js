@@ -36,10 +36,11 @@ for (let trial = 0; trial < 400; trial++) {
   const p = { hand: hand, bid: own ? [own] : [] };
   const acts = api.agentActions(G, p);
   const ref = api.findMinRaise(hand, own, high);
-  let first = null;
-  for (let i = 1; i < api.AGENT_NACT; i++) if (acts[i]) { first = acts[i]; break; }
-  ok(!!ref === !!first, '上乗せ可能性が findMinRaise と一致 hand=' + hand);
-  if (ref && first) ok(ref.total === first.total, '最小上乗せ額 ' + ref.total + ' vs ' + first.total);
+  let lo = null;
+  const totals = {};
+  for (let i = 1; i < api.AGENT_NACT; i++) if (acts[i] && (lo === null || acts[i].total < lo)) lo = acts[i].total;
+  ok(!!ref === (lo !== null), '上乗せ可能性が findMinRaise と一致 hand=' + hand);
+  if (ref && lo !== null) ok(ref.total === lo, '最小上乗せ額 ' + ref.total + ' vs ' + lo);
   for (let i = 1; i < api.AGENT_NACT; i++) {
     if (!acts[i]) continue;
     const a = acts[i];
@@ -48,6 +49,16 @@ for (let trial = 0; trial < 400; trial++) {
     for (const idx of a.idxs) { ok(idx < hand.length, '手札の範囲内'); ok(!seen[idx], '重複なし'); seen[idx] = 1; s += hand[idx]; }
     ok(own + s === a.total, '合計が一致 ' + (own + s) + ' vs ' + a.total);
     ok(a.total > high, '最高額を超えている');
+    ok(!totals[a.total], '同額の候補が重複していない total=' + a.total);   // 枠の並び順に依存しない畳み込み
+    totals[a.total] = 1;
+  }
+  // 残金比の枠が「残金の割合ぶん上乗せする」意図どおりになっているか
+  const money = api.sum(hand);
+  for (let j = 0; j < api.AGENT_FRACS.length; j++) {
+    const i = api.AGENT_STEPS.length + j;
+    ok(api.agentStep(i, money) >= 1, '残金比の上乗せ額が1以上');
+    if (acts[i + 1]) ok(acts[i + 1].total >= Math.min(high + api.agentStep(i, money), own + money),
+      '残金比の枠が狙いの額に届いている');
   }
 }
 
@@ -132,8 +143,63 @@ for (let trial = 0; trial < 400; trial++) {
   console.log('  方策ネット同士 2000局 / ' + ms1 + 'ms  (' + (2000 / ms1 * 1000).toFixed(0) + ' 局/秒)');
   console.log('  1局あたりの意思決定 ' + (sink.length / 2000).toFixed(1) + ' 回（4席合計）');
   let bad = 0;
-  for (const s of sink) if (!Number.isFinite(s.r) || s.r < 0 || s.r > 1) bad++;
-  ok(bad === 0, '報酬が [0,1] に収まる');
+  for (const s of sink) if (!Number.isFinite(s.adv) || !Number.isFinite(s.ret)) bad++;
+  ok(bad === 0, '優位性と価値の目標が有限');
+}
+
+/* 5. 信用割当：pot=0・γ=1・λ=1 なら従来（終局報酬のみ）と数値まで一致すること、
+      中間報酬を入れても1局ぶんの合計が変わらないこと（＝最適方策を動かさない） */
+{
+  const net = api.agentNewNet(96, 64);
+  const r2 = H.makeRng(4242);
+  for (let i = 0; i < net.W1.length; i++) net.W1[i] = (r2() - 0.5) * 0.2;
+  for (let i = 0; i < net.W3.length; i++) net.W3[i] = (r2() - 0.5) * 0.2;
+  const seats = [0, 1, 2, 3].map(() => ({ kind: 'net', net: net, temp: 1, learn: true }));
+
+  api.agentSetPot(0, 0);
+  const base = [];
+  H.useRng(31337);
+  const g0 = playGame(seats, Math.random, base, { gamma: 1, lam: 1 });
+  // ret は終局報酬そのもの、adv は 報酬 − V になっているはず
+  let mism = 0;
+  for (const s of base) {
+    let hit = false;
+    for (let i = 0; i < 4; i++) if (Math.abs(s.ret - g0.reward[i]) < 1e-6 && Math.abs(s.adv - (g0.reward[i] - s.v)) < 1e-6) hit = true;
+    if (!hit) mism++;
+  }
+  ok(mism === 0, 'pot=0・γ=1・λ=1 で ret=終局報酬 / adv=報酬−V（従来と一致）: ' + mism + '件ずれ');
+
+  // 中間報酬あり：席ごとの報酬の総和が終局報酬と一致する（Φ が畳まれる）ことを直接確かめる
+  api.agentSetPot(0.5, 0.4);
+  H.useRng(31337);
+  const G = api.createGame(H.NAMES, H.PERSONAS);
+  const phis = [[], [], [], []];
+  let guard = 0;
+  while (G.phase !== 'over' && guard++ < 4000) {
+    if (G.phase === 'faux') { api.resolveFaux(G, api.cpuFauxChoice(G.players[G.pending.player])); continue; }
+    const p = G.players[G.actor];
+    if (!api.canRaise(G, p)) { api.applyPass(G, p); continue; }
+    const acts = api.agentActions(G, p);
+    phis[p.idx].push(api.agentPotential(G, p));
+    const o = api.agentForward(net, api.agentFeatures(G, p, acts));
+    const k = api.agentSample(api.agentProbs(o, acts, 1), Math.random);
+    if (acts[k].pass) api.applyPass(G, p); else api.applyBid(G, p, acts[k].idxs);
+  }
+  const rew = api.agentReward(G);
+  let worst = 0, nonzero = 0;
+  for (let i = 0; i < 4; i++) {
+    const q = phis[i];
+    if (!q.length) continue;
+    let tot = 0;
+    for (let t = 0; t < q.length; t++) tot += (t + 1 < q.length ? q[t + 1] : 0) - q[t];
+    tot += rew[i];
+    worst = Math.max(worst, Math.abs(tot - rew[i] + q[0]));   // 合計 = 報酬 − Φ(初手)
+    for (const v of q) if (Math.abs(v) > 1e-9) nonzero++;
+  }
+  ok(worst < 1e-9, '中間報酬の合計が「終局報酬 − Φ(初手)」に畳まれる: ずれ ' + worst.toExponential(2));
+  ok(nonzero > 5, 'ポテンシャルが実際に動いている: ' + nonzero + '点');
+  console.log('  信用割当 検査ずみ（従来との一致・Φの畳み込み）');
+  api.agentSetPot(0, 0);
 }
 
 console.log(fails ? '\n失敗 ' + fails + ' 件' : '\nすべて通過');

@@ -34,7 +34,12 @@ const buf = Buffer.from(Int8Array.from(bytes).buffer);
 const b64 = buf.toString('base64');
 const bias = ['B1', 'B2', 'B3'].map(k => w[k].map(v => Number(v.toPrecision(5))));
 
+// 価値関数の意味は「順位の配分」と「ポテンシャルの重み」で決まるので、重みと一緒に埋める。
+// これが欠けると先読みが読む価値の意味がずれる
+const shape = w.shape === undefined ? 0.15 : w.shape;
+const pot = w.pot || [0, 0];
 const data = 'const AGENT_DATA={h:[' + w.h1 + ',' + w.h2 + '],' +
+  'sh:' + Number(shape.toPrecision(4)) + ',p:' + JSON.stringify(pot.map(v => Number(v.toPrecision(4)))) + ',' +
   's:' + JSON.stringify(scales) + ',b:' + JSON.stringify(bias) + ',w:"' + b64 + '"};   /* WEIGHTS */';
 
 const html = fs.readFileSync(H.HTML, 'utf8');
@@ -52,6 +57,7 @@ for (const [key, rows, cols] of shapes) {
   }
 }
 console.log('埋め込み完了: ' + src + ' → index.html');
+console.log('  報酬の定義: 順位の配分 ' + shape + ' / ポテンシャル [' + pot.join(', ') + ']');
 console.log('  重み ' + n + '個 / int8 ' + buf.length + 'バイト → Base64 ' + b64.length + '文字');
 console.log('  埋め込み総サイズ ' + (data.length / 1024).toFixed(1) + ' KB');
 console.log('  量子化の二乗平均誤差 ' + Math.sqrt(se / n).toExponential(2));

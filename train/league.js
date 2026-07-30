@@ -19,7 +19,8 @@ const path = require('path');
 const os = require('os');
 const H = require('./harness');
 const { Runner } = require('./runner');
-const { match } = require('./evaluate');
+const { match, duel } = require('./evaluate');
+const api = H.api();
 
 const argv = {};
 for (const a of process.argv.slice(2)) {
@@ -41,13 +42,18 @@ const CFG = {
   clip: num('clip', 0.2),
   ent: num('ent', 0.008),
   vf: num('vf', 0.5),
+  gamma: num('gamma', 1.0),
+  lam: num('lam', 0.95),
+  pot: num('pot', 0.5), potM: num('potM', 0.4),
+  shape: num('shape', 0.0),          // 継続学習では立ち上がりは済んでいるので既定 0
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.08),
   pPool: num('pPool', 0.34),         // 歴代王者と当たる割合
   poolMax: num('poolMax', 10),
   gateGames: num('gateGames', 2000),
   gateTemp: num('gateTemp', 0.6),
-  margin: num('margin', 0.025),      // 王座交代に必要な差
+  margin: num('margin', 0.010),      // 王座交代に必要な差（対応のある比較にしたので下げた）
+  gateSigma: num('gateSigma', 1.5),  // 差が標準誤差の何倍を超えたら交代とみなすか
   patience: num('patience', 4),      // 連敗がこれに達したら王者に引き戻す
   seed: num('seed', 424242),
   init: argv.init || path.join(__dirname, 'weights.json'),
@@ -57,6 +63,7 @@ const CFG = {
 };
 console.log('設定 ' + JSON.stringify(CFG));
 
+api.agentSetShape(CFG.shape); api.agentSetPot(CFG.pot, CFG.potM);
 const run = new Runner(CFG);
 const base = H.loadWeights(CFG.init);
 run.load(base);
@@ -82,12 +89,14 @@ if (CFG.mode === 'exploit') {
     let it = 0;
     while (Date.now() < until) {
       it++;
-      const st = await run.iterate({ lr: CFG.lr, ent: CFG.ent, temp: CFG.temp, pCpu: 0, pPool: 1 });
+      const st = await run.iterate({ lr: CFG.lr, ent: CFG.ent, temp: CFG.temp, pCpu: 0, pPool: 1,
+        shape: CFG.shape, pot: [CFG.pot, CFG.potM] });
       if (it % CFG.gate === 0 || Date.now() >= until) {
         const me = run.net();
         const a = match({ kind: 'net', net: me, temp: CFG.gateTemp }, { kind: 'net', net: targetNet, temp: CFG.gateTemp }, CFG.gateGames, 31337);
         console.log('#' + String(it).padStart(4) + '  専用AI1人 vs 対象3人 → 勝率 ' + a.win.toFixed(3) +
-          '（互角なら 0.250）  自己勝率 ' + st.selfWin.toFixed(3) + '  エントロピー ' + st.ent.toFixed(3));
+          ' ±' + a.se.toFixed(3) + '（互角なら 0.250）  自己勝率 ' + st.selfWin.toFixed(3) +
+          '  エントロピー ' + st.ent.toFixed(3));
         history.push({ it, exploit: a.win });
         fs.writeFileSync(CFG.log.replace(/\.json$/, '-exploit.json'), JSON.stringify(history));
         run.save(CFG.out.replace(/\.json$/, '.exploiter.json'), { it, exploit: a.win });
@@ -104,22 +113,23 @@ if (CFG.mode === 'exploit') {
     let it = 0;
     while (Date.now() < until) {
       it++;
-      const st = await run.iterate({ lr: CFG.lr, ent: CFG.ent, temp: CFG.temp, pCpu: CFG.pCpu, pPool: CFG.pPool });
+      const st = await run.iterate({ lr: CFG.lr, ent: CFG.ent, temp: CFG.temp, pCpu: CFG.pCpu, pPool: CFG.pPool,
+        shape: CFG.shape, pot: [CFG.pot, CFG.potM] });
       process.stdout.write('#' + String(it).padStart(4) + '  局 ' + st.games + '  自己勝率 ' + st.selfWin.toFixed(3) +
         '  価値損失 ' + st.vl.toFixed(4) + '  エントロピー ' + st.ent.toFixed(3) +
         '  [' + st.msR + '/' + st.msU + 'ms]\n');
 
       if (it % CFG.gate !== 0) continue;
 
-      // 挑戦者 vs 王者。1人対3人を両向きに行い、勝ち分の差で判定する
+      // 挑戦者 vs 王者。1人対3人を両向きに、同一シード＝同じ配牌で役を入れ替えて判定する
       const me = run.net(), T = CFG.gateTemp, N = CFG.gateGames;
-      const a = match({ kind: 'net', net: me, temp: T }, { kind: 'net', net: championNet, temp: T }, N, 900 + it);
-      const b = match({ kind: 'net', net: championNet, temp: T }, { kind: 'net', net: me, temp: T }, N, 1900 + it);
-      const diff = a.win - b.win;
-      const promoted = diff > CFG.margin;
+      const g = duel({ kind: 'net', net: me, temp: T }, { kind: 'net', net: championNet, temp: T }, N, 900 + it);
+      const diff = g.diff;
+      const promoted = diff > CFG.margin && diff > CFG.gateSigma * g.se;
 
-      let line = '  ── 挑戦 ' + a.win.toFixed(3) + ' vs 王者 ' + b.win.toFixed(3) +
-        '（差 ' + (diff >= 0 ? '+' : '') + diff.toFixed(3) + '）';
+      let line = '  ── 挑戦 ' + g.a.toFixed(3) + ' vs 王者 ' + g.b.toFixed(3) +
+        '（差 ' + (diff >= 0 ? '+' : '') + diff.toFixed(3) + ' ±' + g.se.toFixed(3) +
+        ' = ' + (diff / (g.se || 1e-9)).toFixed(1) + 'σ）';
       if (promoted) {
         generation++; fails = 0;
         champion = run.weights(); championNet = run.netOf(champion);
@@ -129,9 +139,10 @@ if (CFG.mode === 'exploit') {
         const vs0 = match({ kind: 'net', net: championNet, temp: T }, { kind: 'net', net: gen0, temp: T }, N, 555);
         const vsCpu = match({ kind: 'net', net: championNet, temp: T }, { kind: 'cpu' }, N, 777);
         line += '  → 第' + generation + '世代へ交代　[初代相手 ' + vs0.win.toFixed(3) +
-          ' / 既存CPU相手 ' + vsCpu.win.toFixed(3) + ']';
-        history.push({ it, generation, diff, vsGen0: vs0.win, vsCpu: vsCpu.win, minutes: (Date.now() - t0) / 60000 });
-        run.save(CFG.out, { generation, it, vsGen0: vs0.win, vsCpu: vsCpu.win, history });
+          ' / 既存CPU相手 ' + vsCpu.win.toFixed(3) + ' ±' + vsCpu.se.toFixed(3) + ']';
+        history.push({ it, generation, diff, se: g.se, vsGen0: vs0.win, vsCpu: vsCpu.win, minutes: (Date.now() - t0) / 60000 });
+        run.save(CFG.out, { generation, it, vsGen0: vs0.win, vsCpu: vsCpu.win,
+          shape: CFG.shape, pot: [CFG.pot, CFG.potM], history });
       } else {
         fails++;
         line += '  → 据え置き（連敗 ' + fails + '/' + CFG.patience + '）';
@@ -139,7 +150,7 @@ if (CFG.mode === 'exploit') {
           run.load(champion); fails = 0;
           line += ' → 王者の重みに引き戻し';
         }
-        history.push({ it, generation, diff, minutes: (Date.now() - t0) / 60000 });
+        history.push({ it, generation, diff, se: g.se, minutes: (Date.now() - t0) / 60000 });
       }
       console.log(line);
       fs.writeFileSync(CFG.log, JSON.stringify(history));

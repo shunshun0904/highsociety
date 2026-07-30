@@ -9,6 +9,7 @@ const os = require('os');
 const H = require('./harness');
 const { Runner } = require('./runner');
 const { match } = require('./evaluate');
+const api = H.api();
 
 const argv = {};
 for (const a of process.argv.slice(2)) {
@@ -28,6 +29,11 @@ const CFG = {
   clip: num('clip', 0.2),
   ent: num('ent', 0.02), entEnd: num('entEnd', 0.004),
   vf: num('vf', 0.5),
+  gamma: num('gamma', 1.0),          // 割引率（終局報酬が本命なので既定は割り引かない）
+  lam: num('lam', 0.95),             // GAE の λ。1 なら素のモンテカルロ（従来と同じ）
+  pot: num('pot', 0.5),              // 中間報酬の強さ（得点差の重み。0 で中間報酬なし）
+  potM: num('potM', 0.4),            // 同じく残金差の重み
+  shape: num('shape', 0.15), shapeEnd: num('shapeEnd', 0.0),   // 順位の配分（線形に焼き鈍す）
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.10),           // 相手席に既存CPUを混ぜる割合
   pPool: num('pPool', 0.20),         // 相手席に過去の自分を混ぜる割合
@@ -54,9 +60,11 @@ if (argv.init) {
 
   for (let it = 1; it <= CFG.iters; it++) {
     const frac = it / CFG.iters;
+    const shape = CFG.shape + (CFG.shapeEnd - CFG.shape) * frac;
     const st = await run.iterate({
       lr: CFG.lr + (CFG.lrEnd - CFG.lr) * frac,
       ent: CFG.ent + (CFG.entEnd - CFG.ent) * frac,
+      shape: shape, pot: [CFG.pot, CFG.potM],
       temp: CFG.temp, pCpu: CFG.pCpu, pPool: CFG.pPool
     });
 
@@ -72,19 +80,22 @@ if (argv.init) {
       '  [対戦 ' + st.msR + 'ms / 更新 ' + st.msU + 'ms]';
 
     if (it % CFG.evalEvery === 0 || it === CFG.iters) {
-      const net = run.net(), T = CFG.evalTemp;
-      const vsCpu = match({ kind: 'net', net: net, temp: T }, { kind: 'cpu' }, CFG.evalGames, 777);
-      const cpuVs = match({ kind: 'cpu' }, { kind: 'net', net: net, temp: T }, CFG.evalGames, 778);
+      // 評価する本体側も、そのときの報酬定義に合わせる（両向きで同一シード＝対応のある比較）
+      api.agentSetShape(shape); api.agentSetPot(CFG.pot, CFG.potM);
+      const net = run.net(), T = CFG.evalTemp, S = 777;
+      const vsCpu = match({ kind: 'net', net: net, temp: T }, { kind: 'cpu' }, CFG.evalGames, S);
+      const cpuVs = match({ kind: 'cpu' }, { kind: 'net', net: net, temp: T }, CFG.evalGames, S);
       line += '\n        評価(温度' + T + '): 学習AI1人 vs 既存CPU3人 → 勝率 ' + vsCpu.win.toFixed(3) +
+        ' ±' + vsCpu.se.toFixed(3) +
         ' ／ 既存CPU1人 vs 学習AI3人 → CPUの勝率 ' + cpuVs.win.toFixed(3) + '（互角なら 0.250）';
       hist.push({ it, vsCpu: vsCpu.win, cpuVs: cpuVs.win, selfWin: st.selfWin });
-      run.save(CFG.out, { iter: it, vsCpu: vsCpu.win, hist });
-      if (vsCpu.win > best) { best = vsCpu.win; run.save(CFG.out.replace(/\.json$/, '.best.json'), { iter: it, vsCpu: vsCpu.win }); }
+      run.save(CFG.out, { iter: it, vsCpu: vsCpu.win, shape: shape, pot: [CFG.pot, CFG.potM], hist });
+      if (vsCpu.win > best) { best = vsCpu.win; run.save(CFG.out.replace(/\.json$/, '.best.json'), { iter: it, vsCpu: vsCpu.win, shape: shape, pot: [CFG.pot, CFG.potM] }); }
     }
     console.log(line);
   }
 
-  run.save(CFG.out, { iter: CFG.iters, hist });
+  run.save(CFG.out, { iter: CFG.iters, shape: CFG.shapeEnd, pot: [CFG.pot, CFG.potM], hist });
   console.log('経過 ' + ((Date.now() - t0) / 1000).toFixed(0) + '秒　保存: ' + CFG.out);
   run.close();
 })();

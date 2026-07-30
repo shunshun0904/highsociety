@@ -64,6 +64,9 @@ function distill(task) {
 }
 
 parentPort.on('message', (task) => {
+  // 報酬の定義（順位の配分・ポテンシャルの重み）は反復ごとに本体から届く
+  if (task.shape !== undefined) api.agentSetShape(task.shape);
+  if (task.pot) api.agentSetPot(task.pot[0], task.pot[1]);
   if (task.mode === 'distill') return distill(task);
   setNet(net, task.w);
   pool.length = 0;
@@ -79,22 +82,22 @@ parentPort.on('message', (task) => {
       else if (r < task.pCpu + task.pPool && pool.length) seats.push({ kind: 'net', net: pool[Math.floor(rnd() * pool.length) % pool.length], temp: task.temp });
       else seats.push({ kind: 'net', net: net, temp: task.temp, learn: true });
     }
-    const res = playGame(seats, rnd, sink);
+    const res = playGame(seats, rnd, sink, { gamma: task.gamma, lam: task.lam });
     games++;
     for (let i = 0; i < 4; i++) if (seats[i].learn) { seatsLearned++; if (res.top.indexOf(i) >= 0) wins += 1 / res.top.length; }
   }
 
   const n = sink.length, nIn = api.AGENT_NFEAT, nAct = api.AGENT_NACT;
   const X = new Float32Array(n * nIn), mask = new Uint8Array(n * nAct);
-  const act = new Uint8Array(n), oldlp = new Float32Array(n), val = new Float32Array(n), ret = new Float32Array(n);
+  const act = new Uint8Array(n), oldlp = new Float32Array(n), adv = new Float32Array(n), ret = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const s = sink[i];
     X.set(s.f, i * nIn);
     mask.set(s.mask, i * nAct);
-    act[i] = s.a; oldlp[i] = s.logp; val[i] = s.v; ret[i] = s.r;
+    act[i] = s.a; oldlp[i] = s.logp; adv[i] = s.adv; ret[i] = s.ret;
   }
   parentPort.postMessage(
-    { n, X, mask, act, oldlp, val, ret, games, wins, seatsLearned },
-    [X.buffer, mask.buffer, act.buffer, oldlp.buffer, val.buffer, ret.buffer]
+    { n, X, mask, act, oldlp, adv, ret, games, wins, seatsLearned },
+    [X.buffer, mask.buffer, act.buffer, oldlp.buffer, adv.buffer, ret.buffer]
   );
 });

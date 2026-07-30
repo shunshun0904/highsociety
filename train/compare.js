@@ -7,7 +7,7 @@
 
 const path = require('path');
 const H = require('./harness');
-const { match } = require('./evaluate');
+const { match, duel } = require('./evaluate');
 
 const argv = {};
 for (const a of process.argv.slice(2)) {
@@ -35,14 +35,16 @@ console.log('A: ' + A.label);
 console.log('B: ' + B.label);
 console.log((useSearch ? '先読みあり' : '素の方策') + '・各' + N + '局・温度' + T);
 
-const ab = match(sa, sb, N, 8801);
-const ba = match(sb, sa, N, 8802);
-const diff = ab.win - ba.win;
-console.log('  A1人 vs B3人 → A ' + ab.win.toFixed(3));
-console.log('  B1人 vs A3人 → B ' + ba.win.toFixed(3));
-console.log('  差 ' + (diff >= 0 ? '+' : '') + diff.toFixed(3) +
-  '（互角なら 0）→ ' + (Math.abs(diff) < 0.03 ? '互角' : diff > 0 ? 'A のほうが強い' : 'B のほうが強い'));
-// 参考として既存CPU相手の数字も
+// 両向きを同一シードで走らせ、同じ配牌で役を入れ替えた対応のある差を取る
+const g = duel(sa, sb, N, 8801);
+const sigma = g.diff / (g.se || 1e-9);
+console.log('  A1人 vs B3人 → A ' + g.a.toFixed(3));
+console.log('  B1人 vs A3人 → B ' + g.b.toFixed(3));
+console.log('  差 ' + (g.diff >= 0 ? '+' : '') + g.diff.toFixed(3) + ' ±' + g.se.toFixed(3) +
+  ' = ' + sigma.toFixed(1) + 'σ（互角なら 0）→ ' +
+  (Math.abs(sigma) < 2 ? '差は有意でない' : g.diff > 0 ? 'A のほうが強い' : 'B のほうが強い'));
+// 参考として既存CPU相手の数字も（こちらも同一シード）
 const ca = match(sa, { kind: 'cpu' }, N, 8803);
-const cb = match(sb, { kind: 'cpu' }, N, 8804);
-console.log('  ［参考］既存CPU3人相手  A ' + ca.win.toFixed(3) + ' / B ' + cb.win.toFixed(3) + '（互角なら 0.250）');
+const cb = match(sb, { kind: 'cpu' }, N, 8803);
+console.log('  ［参考］既存CPU3人相手  A ' + ca.win.toFixed(3) + ' ±' + ca.se.toFixed(3) +
+  ' / B ' + cb.win.toFixed(3) + ' ±' + cb.se.toFixed(3) + '（互角なら 0.250）');
