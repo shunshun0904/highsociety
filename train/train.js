@@ -29,10 +29,10 @@ const CFG = {
   clip: num('clip', 0.2),
   ent: num('ent', 0.02), entEnd: num('entEnd', 0.004),
   vf: num('vf', 0.5),
-  gamma: num('gamma', 1.0),          // 割引率（終局報酬が本命なので既定は割り引かない）
+  gamma: num('gamma', 1.0),          // 割引率（終局報酬が本命なので既定は割り引かない。0.99 は実測で劣る）
   lam: num('lam', 0.95),             // GAE の λ。1 なら素のモンテカルロ（従来と同じ）
-  pot: num('pot', 0.5),              // 中間報酬の強さ（得点差の重み。0 で中間報酬なし）
-  potM: num('potM', 0.4),            // 同じく残金差の重み
+  pot: num('pot', 0.0),              // 中間報酬の強さ（得点差の重み）。実測で効かなかったので既定 0
+  potM: num('potM', 0.0),            // 同じく残金差の重み
   shape: num('shape', 0.15), shapeEnd: num('shapeEnd', 0.0),   // 順位の配分（線形に焼き鈍す）
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.10),           // 相手席に既存CPUを混ぜる割合

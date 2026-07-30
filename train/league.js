@@ -44,7 +44,7 @@ const CFG = {
   vf: num('vf', 0.5),
   gamma: num('gamma', 1.0),
   lam: num('lam', 0.95),
-  pot: num('pot', 0.5), potM: num('potM', 0.4),
+  pot: num('pot', 0.0), potM: num('potM', 0.0),   // 中間報酬は実測で効かなかったので既定 0
   shape: num('shape', 0.0),          // 継続学習では立ち上がりは済んでいるので既定 0
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.08),
