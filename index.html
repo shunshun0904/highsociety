@@ -513,6 +513,44 @@ function agentFeatures(G,p,acts){
   return f;
 }
 
+/* ---- 終局時の成績 ---- */
+// 席順の比較。脱落者（残金最少）は勝てないので常に最下位扱い
+function agentCmp(a,b){
+  if(a.castOut!==b.castOut) return a.castOut?-1:1;
+  if(a.castOut) return 0;
+  return (a.score-b.score)||(a.money-b.money)||(a.best-b.best);
+}
+// 各プレイヤーの「勝ち分（同点は山分け）」と「順位」を返す
+function agentOutcome(G){
+  const t=finalTable(G), rows=t.rows, n=rows.length;
+  const win=new Array(n).fill(0), place=new Array(n).fill(0), top=[];
+  for(let i=0;i<n;i++){
+    if(rows[i].castOut) continue;
+    let isTop=true;
+    for(let j=0;j<n;j++) if(agentCmp(rows[i],rows[j])<0){ isTop=false; break; }
+    if(isTop) top.push(i);
+  }
+  for(let i=0;i<n;i++){
+    let below=0, tie=0;
+    for(let j=0;j<n;j++){
+      if(i===j) continue;
+      const c=agentCmp(rows[i],rows[j]);
+      if(c>0) below++; else if(c===0) tie++;
+    }
+    const k=rows[i].p.idx;
+    place[k]=(below+0.5*tie)/(n-1);
+    win[k]=top.indexOf(i)>=0 ? 1/top.length : 0;
+  }
+  return {win:win, place:place, top:top.map(i=>rows[i].p.idx)};
+}
+// 学習で使う報酬。勝ちを主、順位を従（順位を少し混ぜると学習の立ち上がりが速い）
+const AGENT_SHAPE=0.15;
+function agentReward(G){
+  const o=agentOutcome(G), r=new Array(o.win.length);
+  for(let i=0;i<r.length;i++) r[i]=(1-AGENT_SHAPE)*o.win[i]+AGENT_SHAPE*o.place[i];
+  return r;
+}
+
 /* ---- 方策ネットワーク ---- */
 function agentNewNet(h1,h2){
   const nIn=AGENT_NFEAT, nOut=AGENT_NACT+1;           // 末尾1つは状態価値
@@ -588,6 +626,103 @@ function agentMove(G,temp){
 }
 
 /* ============================================================
+   先読み ── 候補手ごとに競りの続きを何度も試し、価値で選ぶ
+   ------------------------------------------------------------
+   方策は「一目で決める」ため、押せば相手が降りるのか、返り討ちに遭うのかを
+   確かめていない。ここでは各候補手を実際に打ってみて、自分の次の判断どころ
+   （か終局）まで方策で進め、そこでの価値を平均して比べる。
+   山札の順序は伏せられているので、複製した局面では必ず切り直す（覗き見の防止）。
+   ============================================================ */
+const AGENT_ROLLOUTS=12;    // 候補手ごとの試行回数（4以上でほぼ飽和する）
+const AGENT_DEPTH=2;        // 自分の判断どころを何回ぶん読み進めてから価値で打ち切るか
+let AGENT_SEED=(Math.random()*4294967296)>>>0;   // 試行の乱数の起点
+const AGENT_PRUNE=0.02;     // 方策がこれ未満しか推さない手は試さない
+
+// 試行ごとに同じ乱数列を各候補手へ与えるための小さな乱数（対応のある比較にする）
+function agentRng(seed){
+  let s=(seed>>>0)||1;
+  return function(){ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; };
+}
+function agentShuffle(a,rnd){
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; }
+  return a;
+}
+
+function agentClone(G,rnd){
+  const ps=new Array(G.players.length);
+  for(let i=0;i<G.players.length;i++){
+    const p=G.players[i];
+    ps[i]={idx:p.idx,name:p.name,you:p.you,persona:p.persona,
+      hand:p.hand.slice(), bid:p.bid.slice(), passed:p.passed,
+      lux:p.lux.slice(), prestige:p.prestige, passe:p.passe, scandal:p.scandal,
+      fauxHeld:p.fauxHeld, pendingFaux:p.pendingFaux};
+  }
+  return {players:ps, deck:agentShuffle(G.deck.slice(),rnd), card:G.card,
+    starter:G.starter, actor:G.actor, highBid:G.highBid, highBidder:G.highBidder,
+    greenSeen:G.greenSeen, phase:G.phase, pending:G.pending, log:[]};
+}
+
+// 自分の判断どころを depth 回ぶん読み進め（か終局）、その地点の価値を返す。
+// 打ち切り地点は学習時とそろえて「自分が判断する局面」にしてある
+function agentRollValue(net,G,me,temp,rnd,depth){
+  let left=(depth==null?AGENT_DEPTH:depth), guard=0;
+  while(guard++<400){
+    if(G.phase==='over') break;
+    if(G.phase==='faux'){ resolveFaux(G,cpuFauxChoice(G.players[G.pending.player])); continue; }
+    const p=G.players[G.actor];
+    const mine=(p.idx===me);
+    if(mine && canRaise(G,p) && --left<=0) break;
+    let mv;
+    if(!canRaise(G,p)) mv={pass:true};
+    else {
+      const e=agentEval(net,G,p);
+      const a=agentSample(agentProbs(e.logits,e.acts,temp),rnd);
+      mv = a===0 ? {pass:true} : {idxs:e.acts[a].idxs};
+    }
+    if(mv.pass) applyPass(G,p); else applyBid(G,p,mv.idxs);
+  }
+  if(G.phase==='over') return agentReward(G)[me];
+  const p=G.players[me], acts=agentActions(G,p);
+  return agentForward(net,agentFeatures(G,p,acts))[AGENT_NACT];
+}
+
+function agentSearchMove(G,opt){
+  opt=opt||{};
+  const K=opt.rollouts||AGENT_ROLLOUTS, temp=opt.temp==null?AGENT_TEMP:opt.temp;
+  const depth=opt.depth||AGENT_DEPTH;
+  const p=G.players[G.actor], me=p.idx;
+  if(!canRaise(G,p)) return {pass:true};
+  const net=agentNet();
+  if(!net) return cpuMove(G);
+  const e=agentEval(net,G,p);
+  const pr=agentProbs(e.logits,e.acts,1);
+
+  // 方策がまるで推さない手は省く。ただし上位2手は必ず残す
+  const order=[];
+  for(let a=0;a<AGENT_NACT;a++) if(e.acts[a]) order.push(a);
+  order.sort((x,y)=>pr[y]-pr[x]);
+  const keep=order.filter((a,i)=>i<2||pr[a]>=AGENT_PRUNE);
+  if(opt.out){ opt.out.keep=keep; opt.out.mean=null; }
+  if(keep.length===1) return keep[0]===0?{pass:true}:{idxs:e.acts[keep[0]].idxs};
+
+  // 試行 k では山札の切り方も相手の迷いも全候補手で共通にし、手の違いだけを見る
+  const sum=new Float64Array(AGENT_NACT);
+  for(let k=0;k<K;k++){
+    const seed=(AGENT_SEED+=0x9e3779b9)>>>0;
+    for(const a of keep){
+      const rnd=agentRng(seed);
+      const c=agentClone(G,rnd), q=c.players[me];
+      if(a===0) applyPass(c,q); else applyBid(c,q,e.acts[a].idxs);
+      sum[a]+=agentRollValue(net,c,me,temp,rnd,depth);
+    }
+  }
+  let bestA=keep[0], bestV=-Infinity;
+  for(const a of keep){ const v=sum[a]/K; if(v>bestV){ bestV=v; bestA=a; } }
+  if(opt.out){ const m=new Float64Array(AGENT_NACT); for(const a of keep) m[a]=sum[a]/K; opt.out.mean=m; }
+  return bestA===0 ? {pass:true} : {idxs:e.acts[bestA].idxs};
+}
+
+/* ============================================================
    AGENT_END
    ============================================================ */
 
@@ -595,11 +730,11 @@ function agentMove(G,temp){
 const PERSONAS=[{rate:1.0},{rate:0.92},{rate:1.0},{rate:1.12}];
 const NAMES=['あなた','デュボワ夫人','ラヴァル伯爵','ムッシュ・アルノー'];
 let G=null, sel=[], showPurse=false, busy=false, screen='title';
-let level='hard';          // hard=学習AI / easy=従来の思考ルーチン
-function rivalMove(G){ return level==='hard' ? agentMove(G) : cpuMove(G); }
+let level='hard';          // hard=学習AI（先読みあり）/ easy=従来の思考ルーチン
+function rivalMove(G){ return level==='hard' ? agentSearchMove(G) : cpuMove(G); }
 function newGame(){
   G=createGame(NAMES,PERSONAS); sel=[]; screen='play';
-  say(G,'相手 ── '+(level==='hard'&&agentNet()?'学習AI（本気）':'従来CPU（ひかえめ）'),'');
+  say(G,'相手 ── '+(level==='hard'&&agentNet()?'ハード（学習AI＋先読み）':'イージー（従来の思考ルーチン）'),'');
   render(); step();
 }
 const app=document.getElementById('app');
@@ -1105,8 +1240,8 @@ function renderTitle(){
   if(trained){
     h+='<div class="staged" style="margin-top:22px;text-align:center">対戦相手</div>'
       +'<div class="acts" style="margin-top:6px">'
-      +'<button class="btn lv'+(level==='hard'?' primary':'')+'" data-lv="hard">本気</button>'
-      +'<button class="btn lv'+(level==='easy'?' primary':'')+'" data-lv="easy">ひかえめ</button></div>'
+      +'<button class="btn lv'+(level==='hard'?' primary':'')+'" data-lv="hard">ハード（AI）</button>'
+      +'<button class="btn lv'+(level==='easy'?' primary':'')+'" data-lv="easy">イージー（AI）</button></div>'
       +'<div class="staged" style="text-align:center">'
       +(level==='hard'?'自己対戦で鍛えた学習AI。残金と終幕を読んで競ってくる。'
                       :'従来の思考ルーチン。手加減してくれる。')+'</div>';

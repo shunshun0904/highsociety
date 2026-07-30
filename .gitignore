@@ -2,3 +2,9 @@
 # 学習を続けるときは --init=embedded でそこから読み直せる
 train/weights.json
 train/weights.best.json
+train/champion.json
+train/champion.exploiter.json
+train/league-log*.json
+train/weights-wide.json
+train/weights-wide.best.json
+train/weights-distill.json

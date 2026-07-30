@@ -147,6 +147,56 @@ class Trainer {
     }
   }
 
+  /* 先読みの手を教師にした1ミニバッチ（方策は交差エントロピー、価値は二乗誤差）。
+     戻り値の acc は「方策が先読みと同じ手を最上位に置けた割合」 */
+  supervised(batch, opt) {
+    const n = batch.n;
+    const { X, tgt, ret, mask } = batch;
+    const nAct = this.nAct, nOut = this.nOut;
+    this.forward(X, n);
+    const O = this.O, D3 = this.D3;
+    D3.fill(0, 0, n * nOut);
+    const vf = opt.vf, ent = opt.ent || 0;
+    let ce = 0, vl = 0, hit = 0, el = 0;
+    const pr = new Float64Array(nAct);
+
+    for (let b = 0; b < n; b++) {
+      const oo = b * nOut, mo = b * nAct;
+      let mx = -Infinity;
+      for (let a = 0; a < nAct; a++) if (mask[mo + a] && O[oo + a] > mx) mx = O[oo + a];
+      let z = 0;
+      for (let a = 0; a < nAct; a++) {
+        if (!mask[mo + a]) { pr[a] = 0; continue; }
+        const e = Math.exp(O[oo + a] - mx); pr[a] = e; z += e;
+      }
+      let H0 = 0, best = -1, bestP = -1, want = -1, wantT = -1;
+      for (let a = 0; a < nAct; a++) {
+        pr[a] /= z;
+        if (pr[a] > 0) H0 -= pr[a] * Math.log(pr[a]);
+        if (pr[a] > bestP) { bestP = pr[a]; best = a; }
+        const t = tgt[mo + a];
+        if (t > wantT) { wantT = t; want = a; }
+        if (t > 0) ce += -t * Math.log(pr[a] + 1e-12);
+      }
+      el += H0;
+      if (best === want) hit++;
+
+      // やわらかい目標との交差エントロピー。勾配は（今の確率 − 目標）
+      for (let a = 0; a < nAct; a++) {
+        if (!mask[mo + a]) continue;
+        let d = pr[a] - tgt[mo + a];
+        d += ent * pr[a] * (Math.log(pr[a] + 1e-12) + H0);
+        D3[oo + a] = d / n;
+      }
+      const V = O[oo + nAct], dv = V - ret[b];
+      vl += dv * dv;
+      D3[oo + nAct] = 2 * vf * dv / n;
+    }
+    this.backward(X, n);
+    this.adam(opt.lr, opt.clipNorm || 1.0);
+    return { ce: ce / n, vl: vl / n, acc: hit / n, ent: el / n };
+  }
+
   /* PPO の1ミニバッチ。戻り値は診断用の統計 */
   ppo(batch, opt) {
     const n = batch.n;

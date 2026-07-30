@@ -63,6 +63,56 @@ for (let trial = 0; trial < 400; trial++) {
   ok(nz > 10, '非ゼロ要素が十分ある: ' + nz);
 }
 
+/* 3.5 先読み：本物の局面を書き換えないこと、山札を覗かないこと、手が合法であること */
+{
+  const net = api.agentNet() || (() => {
+    const n = api.agentNewNet(96, 64);
+    for (let i = 0; i < n.W1.length; i++) n.W1[i] = (rnd() - 0.5) * 0.2;
+    for (let i = 0; i < n.W3.length; i++) n.W3[i] = (rnd() - 0.5) * 0.2;
+    api.agentUseNet(n); return n;
+  })();
+  let checked = 0;
+  for (let trial = 0; trial < 60; trial++) {
+    const G = api.createGame(H.NAMES, H.PERSONAS);
+    for (let step = 0; step < 8 && G.phase === 'auction'; step++) {
+      const p = G.players[G.actor];
+      if (!api.canRaise(G, p)) break;
+      const before = JSON.stringify({
+        pl: G.players.map(q => [q.hand, q.bid, q.passed, q.lux, q.prestige, q.passe, q.scandal, q.fauxHeld, q.pendingFaux]),
+        deck: G.deck.map(c => [c.t, c.v]), card: [G.card.t, G.card.v],
+        hb: G.highBid, hbr: G.highBidder, ac: G.actor, st: G.starter, gs: G.greenSeen, ph: G.phase
+      });
+      const mv = api.agentSearchMove(G, { rollouts: 4 });
+      // 本物の局面が1ビットも変わっていないこと（山札の順序も含む）
+      const after = JSON.stringify({
+        pl: G.players.map(q => [q.hand, q.bid, q.passed, q.lux, q.prestige, q.passe, q.scandal, q.fauxHeld, q.pendingFaux]),
+        deck: G.deck.map(c => [c.t, c.v]), card: [G.card.t, G.card.v],
+        hb: G.highBid, hbr: G.highBidder, ac: G.actor, st: G.starter, gs: G.greenSeen, ph: G.phase
+      });
+      ok(before === after, '先読みが本物の局面を書き換えていない');
+      // 返ってきた手が合法であること
+      if (!mv.pass) {
+        let s = 0; const seen = {};
+        for (const i of mv.idxs) { ok(!seen[i], '重複なし'); seen[i] = 1; s += p.hand[i]; }
+        ok(api.sum(p.bid) + s > G.highBid, '最高額を超えている');
+      }
+      checked++;
+      if (mv.pass) api.applyPass(G, p); else api.applyBid(G, p, mv.idxs);
+    }
+  }
+  // 複製した局面の山札は「順序が違うだけの同じ札束」であること（覗き見の防止）
+  let shuffled = 0;
+  for (let trial = 0; trial < 40; trial++) {
+    const G = api.createGame(H.NAMES, H.PERSONAS);
+    const c = api.agentClone(G, H.makeRng(trial + 1));
+    const key = d => d.map(x => x.t + (x.v || '')).sort().join(',');
+    ok(key(G.deck) === key(c.deck), '複製の山札は同じ札束');
+    if (G.deck.map(x => x.t + (x.v || '')).join() !== c.deck.map(x => x.t + (x.v || '')).join()) shuffled++;
+  }
+  ok(shuffled > 30, '複製時に山札が切り直されている: ' + shuffled + '/40');
+  console.log('  先読み ' + checked + '手を検査（局面の非破壊・手の合法性・山札の切り直し）');
+}
+
 /* 4. 対局ループ：既存CPU同士で回して速度と手数を測る */
 {
   const seats = [{ kind: 'cpu' }, { kind: 'cpu' }, { kind: 'cpu' }, { kind: 'cpu' }];

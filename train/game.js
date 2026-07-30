@@ -1,43 +1,12 @@
 'use strict';
-/* 自己対戦の1局を回し、学習用のサンプル（特徴・行動・報酬）を取り出す */
+/* 自己対戦の1局を回し、学習用のサンプル（特徴・行動・報酬）を取り出す。
+   勝敗と報酬の定義は index.html の agentOutcome / agentReward（＝本番と同一）を使う。 */
 
 const H = require('./harness');
 
-const SHAPE = 0.15;   // 報酬のうち「順位」に配分する割合。残りは勝ちかどうか
-
-// 席の並び順を比較する。脱落者（残金最少）は勝てないので常に最下位扱い
-function cmpRow(a, b) {
-  if (a.castOut !== b.castOut) return a.castOut ? -1 : 1;
-  if (a.castOut) return 0;
-  return (a.score - b.score) || (a.money - b.money) || (a.best - b.best);
-}
-
-// 勝ち（同点は山分け）と順位を混ぜた報酬を返す
-function rewards(table) {
-  const rows = table.rows, n = rows.length, out = new Array(n).fill(0);
-  const top = [];
-  for (let i = 0; i < n; i++) {
-    if (rows[i].castOut) continue;
-    let isTop = true;
-    for (let j = 0; j < n; j++) if (cmpRow(rows[i], rows[j]) < 0) { isTop = false; break; }
-    if (isTop) top.push(i);
-  }
-  for (let i = 0; i < n; i++) {
-    let below = 0, tie = 0;
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      const c = cmpRow(rows[i], rows[j]);
-      if (c > 0) below++; else if (c === 0) tie++;
-    }
-    const place = (below + 0.5 * tie) / (n - 1);
-    const win = top.indexOf(i) >= 0 ? 1 / top.length : 0;
-    out[rows[i].p.idx] = (1 - SHAPE) * win + SHAPE * place;
-  }
-  return { reward: out, top: top.map(i => rows[i].p.idx) };
-}
-
 /* seats[i] は打ち手の指定
-     {kind:'net', net, temp, learn:true}  学習中の方策（learn の席だけサンプルを集める）
+     {kind:'net', net, temp, learn:true}   学習中の方策（learn の席だけサンプルを集める）
+     {kind:'search', net, temp, rollouts}  先読みつきの方策
      {kind:'cpu'}                          既存の思考ルーチン
      {kind:'random'}                       合法手から一様乱択                     */
 function playGame(seats, rnd, sink) {
@@ -61,6 +30,9 @@ function playGame(seats, rnd, sink) {
       mv = api.cpuMove(G);
     } else if (!api.canRaise(G, p)) {
       mv = { pass: true };                       // 上乗せできない＝降りるしかない
+    } else if (s.kind === 'search') {
+      api.agentUseNet(s.net);
+      mv = api.agentSearchMove(G, { temp: s.temp, rollouts: s.rollouts, depth: s.depth });
     } else {
       const acts = api.agentActions(G, p);
       let a;
@@ -86,10 +58,10 @@ function playGame(seats, rnd, sink) {
     if (mv.pass) api.applyPass(G, p); else api.applyBid(G, p, mv.idxs);
   }
 
-  const table = api.finalTable(G);
-  const r = rewards(table);
-  if (sink) for (const m of marks) { m.r = r.reward[m.seat]; sink.push(m); }
-  return r;
+  const out = api.agentOutcome(G);
+  const reward = api.agentReward(G);
+  if (sink) for (const m of marks) { m.r = reward[m.seat]; sink.push(m); }
+  return { reward: reward, top: out.top };
 }
 
-module.exports = { playGame, rewards, SHAPE };
+module.exports = { playGame };

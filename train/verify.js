@@ -17,7 +17,7 @@ const net = api.agentNet();
 if (!net) { console.log('index.html に重みが埋め込まれていない'); process.exit(1); }
 
 function floatNet(file) {
-  const w = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const w = H.loadWeights(file);
   const n = api.agentNewNet(w.h1, w.h2);
   for (const k of ['W1', 'B1', 'W2', 'B2', 'W3', 'B3']) n[k].set(w[k]);
   return n;
@@ -33,6 +33,11 @@ for (const t of [0.1, 0.2, 0.3, 0.45, 0.6, 0.85, 1.0]) {
 push('温度0.30 1人 vs 乱択3人', match({ kind: 'net', net, temp: 0.3 }, { kind: 'random' }, GAMES, 4243));
 push('既存CPU 1人 vs 学習AI3人（温度0.30）', match({ kind: 'cpu' }, { kind: 'net', net, temp: 0.3 }, GAMES, 4244));
 push('乱択 1人 vs 学習AI3人（温度0.30）', match({ kind: 'random' }, { kind: 'net', net, temp: 0.3 }, GAMES, 4245));
+// 先読みつき（本番の「ハード」がこれ）
+const SN = Math.max(200, Math.round(GAMES / 5));   // 先読みは重いので局数を絞る
+push('［先読み］1人 vs 既存CPU3人  (' + SN + '局)', match({ kind: 'search', net, temp: 0.85 }, { kind: 'cpu' }, SN, 4250));
+push('［先読み］1人 vs 素の方策3人  (' + SN + '局)', match({ kind: 'search', net, temp: 0.85 }, { kind: 'net', net, temp: 0.85 }, SN, 4251));
+push('［先読み］素の方策1人 vs 先読み3人  (' + SN + '局)', match({ kind: 'net', net, temp: 0.85 }, { kind: 'search', net, temp: 0.85 }, SN, 4252));
 push('［参考］既存CPU 1人 vs 乱択3人', match({ kind: 'cpu' }, { kind: 'random' }, GAMES, 4246));
 push('［参考］乱択 1人 vs 既存CPU3人', match({ kind: 'random' }, { kind: 'cpu' }, GAMES, 4247));
 
