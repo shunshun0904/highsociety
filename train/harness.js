@@ -25,8 +25,8 @@ const EXPORTS = [
   'createGame', 'beginRound', 'activeCount', 'nextActor', 'findMinRaise', 'canRaise',
   'applyBid', 'applyPass', 'award', 'resolveFaux', 'rawStatus', 'scoreOf', 'finalTable',
   'cpuBudget', 'cpuMove', 'cpuFauxChoice',
-  'AGENT_STEPS', 'AGENT_FRACS', 'AGENT_NACT', 'AGENT_NFEAT', 'AGENT_TEMP', 'AGENT_DATA',
-  'agentSums', 'agentStep', 'agentActions', 'agentFeatures', 'agentNewNet', 'agentForward',
+  'AGENT_STEPS', 'AGENT_NACT', 'AGENT_NFEAT', 'AGENT_TEMP', 'AGENT_DATA',
+  'agentSums', 'agentActions', 'agentFeatures', 'agentNewNet', 'agentForward',
   'agentProbs', 'agentSample', 'agentEval', 'agentNet', 'agentUseNet', 'agentMove',
   'agentOutcome', 'agentReward', 'agentSetShape', 'agentPotential', 'agentSetPot',
   'agentClone', 'agentRollValue', 'agentSearchMove', 'AGENT_ROLLOUTS'

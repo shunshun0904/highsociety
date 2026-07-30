@@ -52,14 +52,6 @@ for (let trial = 0; trial < 400; trial++) {
     ok(!totals[a.total], '同額の候補が重複していない total=' + a.total);   // 枠の並び順に依存しない畳み込み
     totals[a.total] = 1;
   }
-  // 残金比の枠が「残金の割合ぶん上乗せする」意図どおりになっているか
-  const money = api.sum(hand);
-  for (let j = 0; j < api.AGENT_FRACS.length; j++) {
-    const i = api.AGENT_STEPS.length + j;
-    ok(api.agentStep(i, money) >= 1, '残金比の上乗せ額が1以上');
-    if (acts[i + 1]) ok(acts[i + 1].total >= Math.min(high + api.agentStep(i, money), own + money),
-      '残金比の枠が狙いの額に届いている');
-  }
 }
 
 /* 3. 特徴量：長さ・NaN・値域 */
