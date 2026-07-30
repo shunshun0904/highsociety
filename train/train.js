@@ -30,10 +30,13 @@ const CFG = {
   ent: num('ent', 0.02), entEnd: num('entEnd', 0.004),
   vf: num('vf', 0.5),
   gamma: num('gamma', 1.0),          // 割引率（終局報酬が本命なので既定は割り引かない。0.99 は実測で劣る）
-  lam: num('lam', 0.95),             // GAE の λ。1 なら素のモンテカルロ（従来と同じ）
+  // GAE の λ。0.95 は方策の立ち上がりを約2倍にするが、価値関数が滑らかになって
+  // 先読みが効かなくなる（先読みは兄弟手の価値の差だけを見るため）。
+  // 本番は「方策＋先読み」なので既定は 1（＝素のモンテカルロ・従来と同じ）。詳細は README
+  lam: num('lam', 1.0),
   pot: num('pot', 0.0),              // 中間報酬の強さ（得点差の重み）。実測で効かなかったので既定 0
   potM: num('potM', 0.0),            // 同じく残金差の重み
-  shape: num('shape', 0.15), shapeEnd: num('shapeEnd', 0.0),   // 順位の配分（線形に焼き鈍す）
+  shape: num('shape', 0.15), shapeEnd: num('shapeEnd', 0.15),  // 順位の配分（線形に変化させられる）
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.10),           // 相手席に既存CPUを混ぜる割合
   pPool: num('pPool', 0.20),         // 相手席に過去の自分を混ぜる割合

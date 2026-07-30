@@ -36,7 +36,7 @@ const CFG = {
   vf: num('vf', 0.5),
   ent: num('ent', 0.002),
   tau: num('tau', 0.03),        // 目標のやわらかさ（評価値の差をどれだけ効かせるか）
-  shape: num('shape', 0.0), pot: num('pot', 0.0), potM: num('potM', 0.0),
+  shape: num('shape', 0.15), pot: num('pot', 0.0), potM: num('potM', 0.0),
   temp: num('temp', 0.85),
   rollouts: num('rollouts', 12),
   depth: num('depth', 2),

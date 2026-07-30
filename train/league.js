@@ -43,9 +43,9 @@ const CFG = {
   ent: num('ent', 0.008),
   vf: num('vf', 0.5),
   gamma: num('gamma', 1.0),
-  lam: num('lam', 0.95),
+  lam: num('lam', 1.0),              // 0.95 は先読みを弱くする（README「信用割当」節）
   pot: num('pot', 0.0), potM: num('potM', 0.0),   // 中間報酬は実測で効かなかったので既定 0
-  shape: num('shape', 0.0),          // 継続学習では立ち上がりは済んでいるので既定 0
+  shape: num('shape', 0.15),         // 先読みが終局に届いたときの信号として必要なので残す
   temp: num('temp', 1.0),
   pCpu: num('pCpu', 0.08),
   pPool: num('pPool', 0.34),         // 歴代王者と当たる割合
