@@ -686,10 +686,20 @@ function agentRollValue(net,G,me,temp,rnd,depth){
   return agentForward(net,agentFeatures(G,p,acts))[AGENT_NACT];
 }
 
+// 候補手 a を1回試して、その先の価値を返す
+function agentTry(net,G,me,acts,a,seed,temp,deep){
+  const rnd=agentRng(seed);
+  const c=agentClone(G,rnd), q=c.players[me];
+  if(a===0) applyPass(c,q); else applyBid(c,q,acts[a].idxs);
+  return agentRollValue(net,c,me,temp,rnd,deep);
+}
+
 function agentSearchMove(G,opt){
   opt=opt||{};
   const K=opt.rollouts||AGENT_ROLLOUTS, temp=opt.temp==null?AGENT_TEMP:opt.temp;
   const depth=opt.depth||AGENT_DEPTH;
+  const prune=opt.prune==null?AGENT_PRUNE:opt.prune;
+  const rtemp=opt.rtemp==null?temp:opt.rtemp;          // 読みの中で相手を動かす温度
   const p=G.players[G.actor], me=p.idx;
   if(!canRaise(G,p)) return {pass:true};
   const net=agentNet();
@@ -701,24 +711,43 @@ function agentSearchMove(G,opt){
   const order=[];
   for(let a=0;a<AGENT_NACT;a++) if(e.acts[a]) order.push(a);
   order.sort((x,y)=>pr[y]-pr[x]);
-  const keep=order.filter((a,i)=>i<2||pr[a]>=AGENT_PRUNE);
+  const keep=order.filter((a,i)=>i<2||pr[a]>=prune);
   if(opt.out){ opt.out.keep=keep; opt.out.mean=null; }
   if(keep.length===1) return keep[0]===0?{pass:true}:{idxs:e.acts[keep[0]].idxs};
 
-  // 試行 k では山札の切り方も相手の迷いも全候補手で共通にし、手の違いだけを見る
-  const sum=new Float64Array(AGENT_NACT);
-  for(let k=0;k<K;k++){
-    const seed=(AGENT_SEED+=0x9e3779b9)>>>0;
-    for(const a of keep){
-      const rnd=agentRng(seed);
-      const c=agentClone(G,rnd), q=c.players[me];
-      if(a===0) applyPass(c,q); else applyBid(c,q,e.acts[a].idxs);
-      sum[a]+=agentRollValue(net,c,me,temp,rnd,depth);
+  // 終盤は価値関数で打ち切らず終局まで読む（脱落するかどうかは最後に決まるため）
+  const deep=(opt.endgame && G.deck.length<=opt.endgame) ? 99 : depth;
+
+  const sum=new Float64Array(AGENT_NACT), cnt=new Int32Array(AGENT_NACT);
+  let bestA=keep[0];
+
+  if(opt.halving){
+    /* 予算の逐次配分。全候補に少しずつ試しては弱い半分を落とす。
+       同じ総試行回数でも、有望な手により多くの試行が回る。 */
+    const R=Math.max(1,Math.ceil(Math.log2(keep.length)));
+    const total=K*keep.length;
+    let alive=keep.slice();
+    while(true){
+      const per=Math.max(1,Math.floor(total/(R*alive.length)));
+      for(let k=0;k<per;k++){
+        const seed=(AGENT_SEED+=0x9e3779b9)>>>0;   // 同じ試行では候補手間で乱数を共通にする
+        for(const a of alive){ sum[a]+=agentTry(net,G,me,e.acts,a,seed,rtemp,deep); cnt[a]++; }
+      }
+      if(alive.length<=1) break;
+      alive.sort((x,y)=>sum[y]/cnt[y]-sum[x]/cnt[x]);
+      alive=alive.slice(0,Math.max(1,alive.length>>1));
     }
+    bestA=alive[0];
+  }else{
+    // 試行 k では山札の切り方も相手の迷いも全候補手で共通にし、手の違いだけを見る
+    for(let k=0;k<K;k++){
+      const seed=(AGENT_SEED+=0x9e3779b9)>>>0;
+      for(const a of keep){ sum[a]+=agentTry(net,G,me,e.acts,a,seed,rtemp,deep); cnt[a]++; }
+    }
+    let bestV=-Infinity;
+    for(const a of keep){ const v=sum[a]/cnt[a]; if(v>bestV){ bestV=v; bestA=a; } }
   }
-  let bestA=keep[0], bestV=-Infinity;
-  for(const a of keep){ const v=sum[a]/K; if(v>bestV){ bestV=v; bestA=a; } }
-  if(opt.out){ const m=new Float64Array(AGENT_NACT); for(const a of keep) m[a]=sum[a]/K; opt.out.mean=m; }
+  if(opt.out){ const m=new Float64Array(AGENT_NACT); for(const a of keep) if(cnt[a]) m[a]=sum[a]/cnt[a]; opt.out.mean=m; }
   return bestA===0 ? {pass:true} : {idxs:e.acts[bestA].idxs};
 }
 
