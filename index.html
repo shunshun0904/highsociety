@@ -699,7 +699,9 @@ function agentSearchMove(G,opt){
   const K=opt.rollouts||AGENT_ROLLOUTS, temp=opt.temp==null?AGENT_TEMP:opt.temp;
   const depth=opt.depth||AGENT_DEPTH;
   const prune=opt.prune==null?AGENT_PRUNE:opt.prune;
-  const rtemp=opt.rtemp==null?temp:opt.rtemp;          // 読みの中で相手を動かす温度
+  // 読みの中で相手を動かす温度。実際の相手と同じ温度にするのが最良で、
+  // 「相手は最善手を打つ」と強めに想定すると読みが狂って弱くなる（実測 −0.043）
+  const rtemp=opt.rtemp==null?temp:opt.rtemp;
   const p=G.players[G.actor], me=p.idx;
   if(!canRaise(G,p)) return {pass:true};
   const net=agentNet();
@@ -707,7 +709,10 @@ function agentSearchMove(G,opt){
   const e=agentEval(net,G,p);
   const pr=agentProbs(e.logits,e.acts,1);
 
-  // 方策がまるで推さない手は省く。ただし上位2手は必ず残す
+  /* 方策がまるで推さない手は省く。ただし上位2手は必ず残す。
+     この絞り込みは外さないこと。試行回数は有限なので候補を増やすほど
+     「たまたま高く出た手」を掴みやすくなる。実測でも絞り込みを外すと
+     明確に弱くなった（ハードとの直接対決で −0.093／3.7σ）。 */
   const order=[];
   for(let a=0;a<AGENT_NACT;a++) if(e.acts[a]) order.push(a);
   order.sort((x,y)=>pr[y]-pr[x]);
